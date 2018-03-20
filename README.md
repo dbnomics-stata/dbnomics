@@ -7,6 +7,10 @@ dbnomics provides a suite of tools to browse and import time series data from DB
 
 dbnomics provides an interface to DB.nomics' RESTful API (https://api.next.nomics.world/apidocs), allowing for the advanced filtering of data using Stata's native options syntax (see Examples). To achieve this, the command relies on Erik Lindsley's libjson backend (ssc install libjson).
 
+## Installation
+
+`net install dbnomics, from("https://dreameater89.github.io/dbnomics")`
+
 ## Syntax
 
 ```Stata
