@@ -176,5 +176,4 @@ endpoint       name of dbnomics subcommand
 
 ## Author
 
-Simone Signore
-signoresimone at yahoo [dot] it
+Simone Signore (signoresimone at yahoo [dot] it)
