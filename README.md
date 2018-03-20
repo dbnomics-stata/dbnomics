@@ -36,28 +36,6 @@ install libjson).
 
 . // Load one series via direct reference
 . dbnomics use SERIES_code , provider(PRcode) dataset(DScode) [clear delimiter(char)]
-
-options                    Description
--------------------------------------------------------------------------
-Main
-provider(PRcode)         declare the reference data provider (e.g. AMECO, IMF, Eurostat)
-dataset(DScode)          declare the reference dataset (e.g. PIGOT, BOP, ei_bsin_m)
-clear                    replace data in memory
-
-For datastructure only
-nostat                   disable the parsing of series statistics (speeds up importing)
-
-For series and import only
-limit(int)               set the limit for the number of series to load
-dimensions_opt           provider- and dataset-specific options to filter series (see Examples)
-
-For import only
-seriesids(SERIES_list)   input a comma-separated list to load specific time series
-sdmx(SDMX_mask)          input an SDMX mask to select specific series (Note: not all providers support this option)
-
-For use only
-delimiter(char)          define the separation character (default: tab)
--------------------------------------------------------------------------
 ```
 
 ## Options
@@ -136,9 +114,9 @@ https://db.nomics.world.
 This program has two main dependencies:
 
 1) The Mata json library libjson by Erik Lindsley is needed to parse JSON
-strings. It can be found on SSC: ssc install libjson.
+strings. It can be found on SSC: `ssc install libjson`.
 2) The routine moss by Robert Picard & Nicholas J. Cox is needed to clean
-unicode sequences. It can be found on SSC: ssc install moss.
+unicode sequences. It can be found on SSC: `ssc install moss`.
 
 After each API call, dbnomics stores significant metadata in the form of
 dataset characteristics.  Type *char li _dta[]* after dbnomics to obtain
@@ -149,7 +127,7 @@ important info about the data, e.g., the API endpoint.
 ```Stata
 . // Load the list of available providers with additional metadata:
 
-. dbnomics providers, clear    ///  (click to run)
+. dbnomics providers, clear
 
 . // Load the dataset tree of of the AMECO provider:
 . dbnomics tree, provider(AMECO) clear
@@ -187,7 +165,7 @@ Import all series in Eurostat/ei_bsin_m related to Belgium:
 . dbnomics import, provider(Eurostat) dataset(ei_bsin_m) sdmx(M.BAL...BE) clear
 ................
 16 series found and imported
-
+```
 
 ## Stored results
 
