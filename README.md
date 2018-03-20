@@ -1,7 +1,7 @@
-#dbnomics
+# dbnomics
 Stata client for DB.nomics, the world's economic database (https://db.nomics.world)
 
-    ##Description
+    ## Description
 
         dbnomics provides a suite of tools to browse and import time series data
         from DB.nomics, the world's economic database (https://db.nomics.world).
@@ -16,7 +16,7 @@ Stata client for DB.nomics, the world's economic database (https://db.nomics.wor
         achieve this, the command relies on Erik Lindsley's libjson backend (ssc
         install libjson).
 
-    ##Syntax
+    ## Syntax
 
             Load list of providers
             ```
@@ -82,7 +82,7 @@ Stata client for DB.nomics, the world's economic database (https://db.nomics.wor
           delimiter(char)          define the separation character (default: tab)
         -------------------------------------------------------------------------
 
-    ##Options
+    ## Options
             +------+
         ----+ Main +-------------------------------------------------------------
 
@@ -158,7 +158,7 @@ Stata client for DB.nomics, the world's economic database (https://db.nomics.wor
             for potential future changes in the series specification of
             https://db.nomics.world.
 
-    ##Remarks
+    ## Remarks
 
         This program has two main dependencies:
 
@@ -171,7 +171,7 @@ Stata client for DB.nomics, the world's economic database (https://db.nomics.wor
         dataset characteristics.  Type char li _dta[] after dbnomics to obtain
         important info about the data, e.g., the API endpoint.
 
-    ##Examples
+    ## Examples
 
         Load the list of available providers with additional metadata:
 		```
@@ -228,14 +228,14 @@ Stata client for DB.nomics, the world's economic database (https://db.nomics.wor
             16 series found and imported
 
 
-    ##Stored results
+    ## Stored results
 
         dbnomics stores the following in r():
 
         Local     
           endpoint       name of dbnomics subcommand
 
-    ##Author
+    ## Author
 
         Simone Signore
         signoresimone at yahoo [dot] it
