@@ -3,18 +3,9 @@ Stata client for DB.nomics, the world's economic database (https://db.nomics.wor
 
 ## Description
 
-dbnomics provides a suite of tools to browse and import time series data
-from DB.nomics, the world's economic database (https://db.nomics.world).
-DB.nomics is a web-based platform that aggregates and maintains time
-series data from various statistical agencies across the world.  dbnomics
-only works with Stata 14.0 or higher, since it relies on the secure HTTP
-protocol (https).
+dbnomics provides a suite of tools to browse and import time series data from DB.nomics, the world's economic database (https://db.nomics.world). DB.nomics is a web-based platform that aggregates and maintains time series data from various statistical agencies across the world.  dbnomics only works with Stata 14.0 or higher, since it relies on the secure HTTP protocol (https).
 
-dbnomics provides an interface to DB.nomics' RESTful API
-(https://api.next.nomics.world/apidocs), allowing for the advanced
-filtering of data using Stata's native options syntax (see Examples). To
-achieve this, the command relies on Erik Lindsley's libjson backend (ssc
-install libjson).
+dbnomics provides an interface to DB.nomics' RESTful API (https://api.next.nomics.world/apidocs), allowing for the advanced filtering of data using Stata's native options syntax (see Examples). To achieve this, the command relies on Erik Lindsley's libjson backend (ssc install libjson).
 
 ## Syntax
 
@@ -41,86 +32,42 @@ install libjson).
 ## Options
 ### Main
 
-**provider(**PRcode**)** sets the source that contains the data of interest. The
-list of data providers is continuously updated by the DB.nomics team.
-To obtain the most recent list of active data providers, use the
-command **dbnomics providers [, clear]**.
+- **provider(**PRcode**)** sets the source that contains the data of interest. The list of data providers is continuously updated by the DB.nomics team. To obtain the most recent list of active data providers, use the command **dbnomics providers [, clear]**.
 
-**dataset(**DScode**)** sets the source dataset for the time series of interest.
-A category tree containing all datasets associated with each
-provider(*PRcode*) can be obtained via the command **dbnomics tree,
-provider(PRcode) [clear]**. (**Note**: not all datasets available in the
-category tree may be accessible).
+- **dataset(**DScode**)** sets the source dataset for the time series of interest. A category tree containing all datasets associated with each provider(*PRcode*) can be obtained via the command **dbnomics tree, provider(PRcode) [clear]**. (**Note**: not all datasets available in the category tree may be accessible).
 
-**clear** clears data in memory before importing data from DB.nomics.
+- **clear** clears data in memory before importing data from DB.nomics.
 
 ### datastructure 
 
-**nostat** disables the parsing of series statistics. By default, the command
-**dbnomics datastructure , (...)** also collects information on the
-number of time series associated with each dataset dimension value.
-Using the **nostat** option disables this additional parsing of data,
-speeding up the loading process.
+- **nostat** disables the parsing of series statistics. By default, the command **dbnomics datastructure , (...)** also collects information on the number of time series associated with each dataset dimension value. Using the **nostat** option disables this additional parsing of data, speeding up the loading process.
 
 ### series/import
 
-**limit(**int**)** sets the maximum number of series to load. It limits the
-number of series identified by the **dbnomics series** or **dbnomics import**
-commands, resulting in faster download of information.  A Warning
-message is issued if the total number of series identified is larger
-than the inputted limit(int).
+- **limit(**int**)** sets the maximum number of series to load. It limits the number of series identified by the **dbnomics series** or **dbnomics import** commands, resulting in faster download of information.  A Warning message is issued if the total number of series identified is larger than the inputted limit(int).
 
-**dimensions_opt(**dim_values**)** are provider(*PRcode*)- and
-dataset(*DScode*)-specific options that can be used to identify series.
-A list of dimensions can be obtained using **dbnomics datastructure,
-provider(PRcode) dataset(DScode)**.  For instance, assuming the
-dimensions of dataset(*DScode*) to be *freq.unit.geo*, accepted options
-for **dbnomics series,(...)** and **dbnomics import,(...)** are
-**freq(**codelist**)**, **unit(**codelist**)** and **geo(**codelist**)**.  Each
-**dimension_opt(**dim_values**)** can contain one or more values in a space
-or comma-separated list, so as to select multiple dimensions at once
-(*e.g.*, a list of countries).  **Note:** dbnomics does not carry a
-validation check on user-inputted **dimension_opt(**dim_values**)**; if a
-dimension_opt(dim_values) is invalid, dbnomics will likely return the
-message Warning: no series found. See the Examples section.
+- **dimensions_opt(**dim_values**)** are provider(*PRcode*)- and dataset(*DScode*)-specific options that can be used to identify series. A list of dimensions can be obtained using **dbnomics datastructure, provider(PRcode) dataset(DScode)**.  For instance, assuming the dimensions of dataset(*DScode*) to be *freq.unit.geo*, accepted options for **dbnomics series,(...)** and **dbnomics import,(...)** are **freq(**codelist**)**, **unit(**codelist**)** and **geo(**codelist**)**.  Each **dimension_opt(**dim_values**)** can contain one or more values in a space or comma-separated list, so as to select multiple dimensions at once (*e.g.*, a list of countries).  **Note:** dbnomics does not carry a validation check on user-inputted **dimension_opt(**dim_values**)**; if a dimension_opt(dim_values) is invalid, dbnomics will likely return the message Warning: no series found. See the Examples section.
 
 ### import
 
-*Note:* the options below are mutually exclusive and are alternatives to
-**dimensions_opt(**dim_values**)**.
+*Note:* the options below are mutually exclusive and are alternatives to **dimensions_opt(**dim_values**)**.
 
-**seriesids(**SERIES_list**)** accepts a comma-separated list of names
-corresponding to series available in provider(*PRcode*) and
-dataset(*DScode*). Each series is then imported accordingly.
+- **seriesids(**SERIES_list**)** accepts a comma-separated list of names corresponding to series available in provider(*PRcode*) and dataset(*DScode*). Each series is then imported accordingly.
 
-**sdmx(**SDMX_mask**)** accepts an SDMX REST query ("SDMX mask") containing
-dimensions to identify series for a provider(*PRcode*) and
-dataset(*DScode*) that supports this function.  A list of dimensions
-can be obtained using **dbnomics datastructure, provider(PRcode)
-dataset(DScode)**. **Note**: not all providers will support this feature.
-In such case **dbnomics import, (...)** may return a Warning: no series
-found error.
+- **sdmx(**SDMX_mask**)** accepts an SDMX REST query ("SDMX mask") containing dimensions to identify series for a provider(*PRcode*) and dataset(*DScode*) that supports this function.  A list of dimensions can be obtained using **dbnomics datastructure, provider(PRcode) dataset(DScode)**. **Note**: not all providers will support this feature. In such case **dbnomics import, (...)** may return a Warning: no series found error.
 
 ### use
 
-**delimiters(**"chars"[, collapse|asstring]**)** allows to specify other
-separation characters.  By default, **dbnomics use ...**  will assume
-tab-separated data.  This option is generally not needed but accounts
-for potential future changes in the series specification of
-https://db.nomics.world.
+- **delimiters(**"chars"[, collapse|asstring]**)** allows to specify other separation characters.  By default, **dbnomics use ...**  will assume tab-separated data.  This option is generally not needed but accounts for potential future changes in the series specification of https://db.nomics.world.
 
 ## Remarks
 
 This program has two main dependencies:
 
-1) The Mata json library libjson by Erik Lindsley is needed to parse JSON
-strings. It can be found on SSC: `ssc install libjson`.
-2) The routine moss by Robert Picard & Nicholas J. Cox is needed to clean
-unicode sequences. It can be found on SSC: `ssc install moss`.
+1. The Mata json library libjson by Erik Lindsley is needed to parse JSON strings. It can be found on SSC: `ssc install libjson`.
+2. The routine moss by Robert Picard & Nicholas J. Cox is needed to clean unicode sequences. It can be found on SSC: `ssc install moss`.
 
-After each API call, dbnomics stores significant metadata in the form of
-dataset characteristics.  Type *char li _dta[]* after dbnomics to obtain
-important info about the data, e.g., the API endpoint.
+After each API call, dbnomics stores significant metadata in the form of dataset characteristics.  Type *char li _dta[]* after dbnomics to obtain important info about the data, e.g., the API endpoint.
 
 ## Examples
 
