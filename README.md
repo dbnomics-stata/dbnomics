@@ -58,7 +58,7 @@ dbnomics provides an interface to DB.nomics' RESTful API (https://api.next.nomic
 
 ### use
 
-- **delimiters(**"chars"[, collapse|asstring]**)** allows to specify other separation characters.  By default, **dbnomics use ...**  will assume tab-separated data.  This option is generally not needed but accounts for potential future changes in the series specification of https://db.nomics.world.
+- **delimiters(**"chars"[, collapse\|asstring]**)** allows to specify other separation characters.  By default, **dbnomics use ...**  will assume tab-separated data.  This option is generally not needed but accounts for potential future changes in the series specification of https://db.nomics.world.
 
 ## Remarks
 
