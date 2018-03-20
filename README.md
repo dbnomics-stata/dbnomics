@@ -167,13 +167,6 @@ Import all series in Eurostat/ei_bsin_m related to Belgium:
 16 series found and imported
 ```
 
-## Stored results
-
-dbnomics stores the following in r():
-
-Local     
-endpoint       name of dbnomics subcommand
-
 ## Author
 
 Simone Signore (signoresimone at yahoo [dot] it)
