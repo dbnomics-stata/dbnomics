@@ -1,4 +1,4 @@
-*! Ver 1.0.0 20mar2018 Simone Signore
+*! Ver 1.0.1 08may2018 Simone Signore
 *! Stata API client for db.nomics.world. Requires libjson and moss
 capture program drop dbnomics
 
@@ -10,6 +10,7 @@ program dbnomics, rclass
 	
 	/* Changelog
 	20mar2018  v1.0.0 Initial release
+	08may2018  v1.0.1 Fixed syntax parsing bug
 	*/
 	
 	/*TODO:
@@ -824,10 +825,14 @@ program _optdict
 		local optfull "``=2*`i'-1''"
 		gettoken optcmd optval : optfull, parse("(")
 		
-		if ("`optcmd'" != "") local optlist "`optlist' `optcmd'"
-		if ("`optcmd'" != "") local optsyn "`optsyn' `=strlower("`optcmd'")'(string asis)"
+		/* Here syntax-encode optcmd */
+		mata: st_local("optcmd_enc", syntaxencode(`"`optcmd'"'))
 		
-		if ("`=strlower("`optcmd'")'" != "`optcmd'") local cmdorig : subinstr local cmdorig `"`optcmd'("' `"`=strlower("`optcmd'")'("'
+		if ("`optcmd_enc'" != "") local cmdorig : subinstr local cmdorig `"`optcmd'"' `"`optcmd_enc'"'
+		if ("`optcmd_enc'" != "") local optlist "`optlist' `optcmd_enc'"
+		if ("`optcmd_enc'" != "") local optsyn "`optsyn' `=strlower("`optcmd_enc'")'(string asis)"
+		
+		if ("`=strlower("`optcmd_enc'")'" != "`optcmd_enc'") local cmdorig : subinstr local cmdorig `"`optcmd_enc'("' `"`=strlower("`optcmd_enc'")'("'
 		
 		/* if ("`optval'" != "") local optvals "`optvals' `=substr(`"`optval'"',2,.)'" */
 		
@@ -843,10 +848,14 @@ program _optdict
 	foreach opt of local optlist {
 		
 		local theopt `""``=strlower("`opt'")''""'
+		
+		/* Here syntax-decode optcmd */
+		mata: st_local("optcmd", syntaxdecode(`"`opt'"'))
+		
 		local theoptdict : subinstr local theopt `"" ""' `"",""', all
 		local theoptdict2 : subinstr local theoptdict `""""' `"""', all
 		
-		local thedict "`thedict'"`opt'":[`theoptdict2'],"
+		local thedict "`thedict'"`optcmd'":[`theoptdict2'],"
 	
 	}
 	
@@ -1405,6 +1414,38 @@ mata
 		} 
 		
 		return(char(res));
+	}
+	
+	/* Convert to syntax-approved string */
+	string scalar syntaxencode(string scalar input) {
+
+		real rowvector ascinput
+		string scalar output
+
+		ascinput = ascii(input);
+		output = "";
+		for (kk=1; kk<=cols(ascinput); kk++) {
+			if ((ascinput[kk] >= 1 && ascinput[kk] <=45) || (ascinput[kk] >= 58 && ascinput[kk] <=64) || (ascinput[kk] >= 91 && ascinput[kk] <=94) || (ascinput[kk] >= 123 && ascinput[kk] <=126) || (ascinput[kk] == 47 || ascinput[kk] == 96)) {
+				output = output + "_" + strofreal(ascinput[kk]) + "_";
+			} else {
+				output = output + char(ascinput[kk]);
+			}		
+		}
+		
+		return(output);
+	}
+	
+	/* Decode from syntax-approved string */
+	string scalar syntaxdecode(string scalar input) {
+
+		string scalar output
+		
+		output = input;
+		for (kk=1; kk<=128; kk++) {
+			output = subinstr(output, "_" + strofreal(kk) + "_", char(kk));
+		}
+		
+		return(output);
 	}	
 	
 	

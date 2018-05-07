@@ -77,7 +77,6 @@ After each API call, dbnomics stores significant metadata in the form of dataset
 
 ```Stata
 . // Load the list of available providers with additional metadata:
-
 . dbnomics providers, clear
 
 . // Load the dataset tree of of the AMECO provider:
