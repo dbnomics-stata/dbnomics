@@ -1,4 +1,4 @@
-*! Ver 1.0.1 08may2018 Simone Signore
+*! Ver 1.0.2 23may2018 Simone Signore
 *! Stata API client for db.nomics.world. Requires libjson and moss
 capture program drop dbnomics
 
@@ -11,6 +11,7 @@ program dbnomics, rclass
 	/* Changelog
 	20mar2018  v1.0.0 Initial release
 	08may2018  v1.0.1 Fixed syntax parsing bug
+	23may2018  v1.0.2 Updated to API ver 0.18.0
 	*/
 	
 	/*TODO:
@@ -105,7 +106,8 @@ program dbnomics_providers
 	
 	/* Parse JSON */
 	mata: providers = fetchjson("`jdata'", "");
-	mata: provnode = fetchjson("`jdata'", "providers");
+	mata: provobj = fetchjson("`jdata'", "providers");
+	mata: provnode = provobj->getNode("docs");
 	
 	/* Check for error in response */
 	mata: parseresperr(providers);
@@ -329,7 +331,7 @@ program dbnomics_structure
 	}
 	
 	/* Add provider metadata */
-	mata: metadata = ("series_count","code","name");
+	mata: metadata = ("nb_series","code","name");
 	mata: datafeat = fetchkeyvals(datainfo, metadata);
 	mata: for (kk=1; kk<=cols(metadata); kk++) st_lchar("_dta", metadata[kk], datafeat[kk]);
 	
@@ -338,7 +340,7 @@ program dbnomics_structure
 	mata: st_local("dtstructure", structinfo);
 	mata: st_lchar("_dta", "dtstructure", structinfo);
 	
-	local seriesnum : char _dta[series_count1]
+	local seriesnum : char _dta[nb_series1]
 	display as res "`: char _dta[name1]' `: char _dta[name2]'"
 	display as txt "`seriesnum' series found. Order of dimensions: (`dtstructure')"
 	
@@ -410,7 +412,7 @@ program dbnomics_series
 	mata: datainfo = fetchjson("`jdata'", "dataset");
 	
 	/* Tot. series num. */
-	mata: numseries = fetchkeyvals(datainfo, ("series_count"));
+	mata: numseries = fetchkeyvals(datainfo, ("nb_series"));
 	mata: st_local("series_count", numseries[1]);
 
 	/* Parse series node */
@@ -453,7 +455,7 @@ program dbnomics_series
 	}
 	
 	/* Add provider metadata */
-	mata: metadata = ("series_count","code","name");
+	mata: metadata = ("nb_series","code","name");
 	mata: datafeat = fetchkeyvals(datainfo, metadata);
 	mata: for (kk=1; kk<=cols(metadata); kk++) st_lchar("_dta", metadata[kk], datafeat[kk]);
 	
@@ -1031,7 +1033,7 @@ mata
 		string matrix thetree
 		
 		/*Extract relevant node*/
-		provnode = node->getNode("categories_tree");
+		provnode = node->getNode("category_tree");
 		
 		/* Build tree table */
 		thetree = getrecursive(provnode, dictkeys, 0);
