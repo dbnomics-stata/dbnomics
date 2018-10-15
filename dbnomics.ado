@@ -12,6 +12,7 @@ program dbnomics, rclass
 	20mar2018  v1.0.0 Initial release
 	08may2018  v1.0.1 Fixed syntax parsing bug
 	23may2018  v1.0.2 Updated to API ver 0.18.0
+	15dec2018  v1.0.3 Updated to API ver 0.21.5
 	*/
 	
 	/*TODO:
@@ -36,7 +37,7 @@ program dbnomics, rclass
 	syntax [anything(name=subcall id="subcall list")], [CLEAR *]
 
 	/* Setup API endpoint */
-	local apipath = "https://api.next.nomics.world" /* https://api.db.nomics.world/api/v1/json */
+	local apipath = "https://api.db.nomics.world" /* https://api.db.nomics.world/api/v1/json */
 	
 	/* Parse subcall*/
 	if inlist("`subcall'","provider","providers") {
@@ -52,11 +53,17 @@ program dbnomics, rclass
 		dbnomics_series `apipath', `clear' `macval(options)'
 	}
 	else if "`subcall'" == "import" {
+		/* timer on 1 */
 		dbnomics_import `apipath', `clear' `macval(options)'
+		/* timer off 1
+		timer list 1
+		timer clear 1 */
 	}
 	else if (substr("`subcall'",1,4) == "use ") {
-		tokenize `macval(subcall)'
-		dbnomics_use `2', `clear' `macval(options)' path(`apipath')
+		di as err "Sorry, the {err:{bf:dbnomics use}} API was disabled. Use {cmd:dbnomics import, seriesids(...)} instead."
+		exit 198
+		/* tokenize `macval(subcall)'
+		dbnomics_use `2', `clear' `macval(options)' path(`apipath') */
 	}	
 	else {
 		di as err "dbnomics: unknown subcommand "`""`subcall'""'"" 
@@ -77,7 +84,7 @@ program dbnomics_providers
 	syntax anything(name=path), [CLEAR]
 	
 	/* Setup call*/
-	local apipath = "`path'"
+	local apipath = "`path'/providers"
 	
 	/* Parse clear option*/
 	if ("`clear'" == "") {
@@ -143,7 +150,7 @@ program dbnomics_tree
 	syntax anything(name=path), PRovider(string) [KEYS(string) CLEAR LEVel(name)]
 	
 	/* Setup call*/
-	local apipath = "`path'/`provider'"
+	local apipath = "`path'/providers/`provider'"
 	
 	/* Parse clear option*/
 	if ("`clear'" == "") {
@@ -537,7 +544,8 @@ program dbnomics_import
 	
 	/* Setup call*/
 	if (`"`seriesids'"' != "") {
-		local apipath = "`path'/series?`thequery'&limit=`limit'&offset=`offset'"
+		/* local apipath = "`path'/series?`thequery'&limit=`limit'&offset=`offset'" */
+		local apipath = "`path'/series?`thequery'"		/* API 0.21.5 forbids limit and offset */
 	}
 	else {
 		local apipath = "`path'/series?provider_code=`provider'&dataset_code=`dataset'&limit=`limit'&offset=`offset'`thequery'"	
@@ -590,23 +598,30 @@ program dbnomics_import
 		
 		nobreak {
 			quietly {
-			
-				forvalues jj = 1/`series_found' {
+				
+				local appendlist
+				
+				/* Note: this may fail for huge list of series if the c(macrolen) is hit */
+				forval jj = 1/`series_found' {
 					
-					preserve
+					tempfile dbseries`jj'
+					if (`jj' > 1) local appendlist "`appendlist' "`dbseries`jj''""
+				
+					/* preserve */
 					
 						drop _all
 						
 						/* Parse series data */
 						capture mata: seriesformat(srsdata, `jj');
+						save `dbseries`jj''
 						
-						if (`jj' > 1) {
+						/* if (`jj' > 1) {
 							append using `theseries'
 							save `theseries', replace
 						}
 						else {
 							save `theseries'
-						}
+						} */
 						
 						if (`jj' == `series_found') {
 							noi di "."
@@ -615,11 +630,12 @@ program dbnomics_import
 							noi di "." _c
 						}
 					
-					restore
+					/* restore */
 				
 				}
 				
-				use `theseries', clear
+				use `dbseries1', clear
+				append using `appendlist', gen(series_num)				
 				
 			}
 		}
