@@ -1,4 +1,4 @@
-*! Ver 1.0.2 23may2018 Simone Signore
+*! Ver 1.0.3 15oct2018 Simone Signore
 *! Stata API client for db.nomics.world. Requires libjson and moss
 capture program drop dbnomics
 
@@ -12,7 +12,7 @@ program dbnomics, rclass
 	20mar2018  v1.0.0 Initial release
 	08may2018  v1.0.1 Fixed syntax parsing bug
 	23may2018  v1.0.2 Updated to API ver 0.18.0
-	15dec2018  v1.0.3 Updated to API ver 0.21.5
+	15oct2018  v1.0.3 Updated to API ver 0.21.5
 	*/
 	
 	/*TODO:
