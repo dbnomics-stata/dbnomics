@@ -60,7 +60,7 @@ program dbnomics, rclass
 		timer clear 1 */
 	}
 	else if (substr("`subcall'",1,4) == "use ") {
-		di as err "Sorry, the {err:{bf:dbnomics use}} API was disabled. Use {cmd:dbnomics import, seriesids(...)} instead."
+		di as err "Sorry, the {err:{bf:dbnomics use}} API is deprecated. Use {cmd:dbnomics import, seriesids(...)} instead."
 		exit 198
 		/* tokenize `macval(subcall)'
 		dbnomics_use `2', `clear' `macval(options)' path(`apipath') */
