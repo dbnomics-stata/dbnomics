@@ -635,7 +635,7 @@ program dbnomics_import
 				}
 				
 				use `dbseries1', clear
-				append using `appendlist', gen(series_num)				
+				if (`"`appendlist'"' != "") append using `appendlist', gen(series_num)
 				
 			}
 		}
@@ -1172,8 +1172,16 @@ mata
 		
 		/* Ensure headers are proper stata var names*/
 		pheadersp = J(rows(pheaders),cols(pheaders),"")
-		pheadersp[.,.] = strtoname(pheaders[.,.]);
-			
+		
+		for (r=1; r<=cols(pheaders); r++) {
+			if (strlen(pheaders[1,r])>32) {
+				pheadersp[1,r] = strtoname(substr(pheaders[1,r],1,16)+substr(pheaders[1,r],-16,.));
+			}
+			else {
+				pheadersp[1,r] = strtoname(pheaders[1,r]);
+			}
+		}		
+		
 		/*Add info to dataset*/
 		st_addobs(rows(ptable));
 		st_sstore(.,st_addvar("str2045", pheadersp), ptable);	
