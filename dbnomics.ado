@@ -1,4 +1,4 @@
-*! Ver 1.0.3 15oct2018 Simone Signore
+*! Ver 1.1.0 19oct2018 Simone Signore
 *! Stata API client for db.nomics.world. Requires libjson and moss
 capture program drop dbnomics
 
@@ -13,9 +13,11 @@ program dbnomics, rclass
 	08may2018  v1.0.1 Fixed syntax parsing bug
 	23may2018  v1.0.2 Updated to API ver 0.18.0
 	15oct2018  v1.0.3 Updated to API ver 0.21.5
+	19oct2018  v1.1.0 Added news API and smart listing (0.21.6)
 	*/
 	
 	/*TODO:
+	Make sure return values in dbnomics_list are propagated upwards
 	Refine series parser to capture additional panel objects
 	Integrate dataset search endpoint?
 	*/
@@ -59,6 +61,9 @@ program dbnomics, rclass
 		timer list 1
 		timer clear 1 */
 	}
+	else if "`subcall'" == "news" {
+		dbnomics_news `apipath', `clear' `macval(options)'
+	}	
 	else if (substr("`subcall'",1,4) == "use ") {
 		di as err "Sorry, the {err:{bf:dbnomics use}} API is deprecated. Use {cmd:dbnomics import, seriesids(...)} instead."
 		exit 198
@@ -496,17 +501,17 @@ program dbnomics_import
 	syntax anything(name=path), PRovider(string) Dataset(string) [LIMIT(integer 500) OFFSET(integer 0) SDMX(string asis) SERIESids(string asis) CLEAR *]
 	
 	/* smdx and dimensions mutually exclusive */
-	if ("`sdmx'" != "" & "`macval(options)'" != "") {
+	if (`"`sdmx'"' != "" & `"`macval(options)'"' != "") {
 		di as smcl "{err:Options {cmd:sdmx} and {cmd:dimensions} are mutually exclusive.}"
 		exit 198
 	}
 	/* seriesids and dimensions mutually exclusive */
-	if ("`seriesids'" != "" & "`macval(options)'" != "") {
+	if (`"`seriesids'"' != "" & `"`macval(options)'"' != "") {
 		di as smcl "{err:Options {cmd:sdmx} and {cmd:dimensions} are mutually exclusive.}"
 		exit 198
 	}	
 	/* seriesids and sdmx mutually exclusive */
-	if ("`seriesids'" != "" & "`sdmx'" != "") {
+	if (`"`seriesids'"' != "" & `"`sdmx'"' != "") {
 		di as smcl "{err:Options {cmd:sdmx} and {cmd:seriesids} are mutually exclusive.}"
 		exit 198
 	}
@@ -602,7 +607,7 @@ program dbnomics_import
 				local appendlist
 				
 				/* Note: this may fail for huge list of series if the c(macrolen) is hit */
-				forval jj = 1/`series_found' {
+				forval jj = 1/`=min(`limit',`series_found')' {
 					
 					tempfile dbseries`jj'
 					if (`jj' > 1) local appendlist "`appendlist' "`dbseries`jj''""
@@ -674,7 +679,7 @@ program dbnomics_import
 end
 
 
-/*6. Use single series */
+/*6. Use single series (DEPRECATED) */
 program dbnomics_use
 
 	syntax anything(name=series), PRovider(string) Dataset(string) PATH(string asis) [CLEAR DELIMiter(string)]
@@ -731,7 +736,190 @@ program dbnomics_use
 	
 end
 
+/*7. Last updates */
+program dbnomics_news
+	
+	syntax anything(name=path), [CLEAR SHOWnum(integer 20) SHOWall]
+	
+	/* Setup call*/
+	local apipath = "`path'/last-updates"
+	
+	/* Parse clear option*/
+	if ("`clear'" == "") {
+		if `c(width)' > 0 {
+			di as err "no; data in memory would be lost. Use the {cmd:clear} option"
+			exit 4
+		}
+	} 
+	else {
+		clear
+	}
+	
+	display as txt "Downloading recently added datasets..."
+	
+	/* Save json locally to reduce server load over multiple calls */
+	tempfile jdata
+	capture copy "`apipath'" `jdata', replace
+	if (inrange(_rc,630,696) | _rc == 601) {
+		if (_rc == 601) di as err "Network error. Invalid API endpoint."
+		exit _rc
+	}
+	else if (_rc > 0) {
+		di as err "Kernel panic. Abort"
+		exit _rc
+	}
+	
+	/* Parse JSON */
+	mata: thenews = fetchjson("`jdata'", "");
+	mata: datanode = thenews->getNode("datasets");
+	
+	/* Check for error in response */
+	mata: parseresperr(thenews);
+	
+	/* Parse metadata */
+	mata: st_local("nomicsmeta", parsemeta(thenews));
+	
+	/* Call mata function */
+	mata: pushdata(json2table(datanode), jsoncolsArray(datanode, 0)');
+	
+	/* Reduce space (this can be automated in the future)*/
+	qui compress	
+	
+	/* Housekeeping */
+	quietly {
+		cleanutf8
+		destring _all, replace
+		remove_destrchar _all
+		auto_labels _all
+	}	
+	
+	
+	quietly {
+		/* Parse dates */
+		unab varlist : _all
+		local dbdates "converted_at indexed_at"
+		local dbdates : list dbdates & varlist
+	
+		local iter 0
+
+		foreach dbd of local dbdates {
+			tempvar dbd`iter'
+			gen `dbd`iter'' = clock(`dbd',"YMD#hms#")
+			order `dbd`iter'', after(`dbd')
+			la var `dbd`iter'' "`: var lab `dbd''"
+			drop `dbd'
+			clonevar `dbd' = `dbd`iter''
+			format %tc `dbd'
+			order `dbd', after(`dbd`iter++'')
+		}
+	
+		/* Order dataset */
+		local ordlist "provider_code name provider_name code nb_series indexed_at"
+		local ordlist : list ordlist & varlist
+		capture order `ordlist', first
+	
+	}
+	
+	dbnomics_list `ordlist', target(code) pr(provider_code) subcall(structure) apipath("`path'") show(`shownum') `showall'
+	
+	/* Add metadata as dataset data characteristic */
+	char _dta[endpoint] "`apipath'"
+	char _dta[_meta] "`nomicsmeta'"
+	
+end
+
 /* 99. Utilities */
+
+/* List data with smart linking */
+capture program drop dbnomics_list
+program dbnomics_list, rclass
+
+	syntax varlist(min=2), Target(varname) SUBCALL(string) APIPATH(string) [SHOWnum(integer 20) PRoviderlist(varname) Datasetlist(varname) SHOWall]
+	
+	/* Allocate screen space */
+	local cc = 1
+	local colspan0 = 1
+	/* unab varlist : _all		TO REMOVE */
+	local maxshare = round(1.30 * (`c(linesize)'/ `:list sizeof varlist'),1)
+	foreach var of local varlist {
+		local varlen = length("`var'") + 3
+		local col`cc' : format `var'
+		/* default colspan*/
+		local colspan`cc' = max(`varlen', 10) + `colspan`=`cc'-1''
+		if (regexm("`col`cc''","%([0-9]+).*[a-z]$")) local colspan`cc' = min(`maxshare', max(`varlen', real(regexs(1)))) + `colspan`=`cc++'-1''
+	}
+	
+	/* Write headers */
+	local tablelen = `colspan`=`cc'-1'' + 3
+	local cc = 0
+	quietly {
+		noi di as smcl "{c TLC}{hline `tablelen'}{c TRC}" _n "{c |}" _c
+		foreach var of local varlist {
+			noi di as smcl "{col `colspan`cc++''}`:var lab `var''" _c
+		}
+		noi di as smcl "{col `tablelen'}  {c |}" _n "{c BLC}{hline `tablelen'}{c BRC}" _c
+	}
+	
+	/* Write table content */
+	if ("`showall'" != "") local shownum = `c(N)'
+	quietly {
+		forval ii = 1/`=min(`shownum', `c(N)')' {
+			
+			local cc = 0
+			noi di as smcl _n " " _c
+		
+			foreach var of local varlist {
+				
+				capture confirm string var `var'
+				local istr = (_rc==0)
+				
+				/* Check if variable is the target var */
+				if ("`var'" == "`target'") {
+					/* Build command */
+					if ("`subcall'" == "structure") {
+						local ocomm "dbnomics data, pr(`=`providerlist'[`ii']') d(`=`target'[`ii']') clear"
+					}
+					else if ("`subcall'" == "import") {
+						local ocomm "dbnomics import, pr(`=`providerlist'[`ii']') d(`=`datasetlist'[`ii']') series(`=`target'[`ii']') clear"
+					}
+					
+					
+					if (`istr') {
+						local olab = abbrev("`=`var'[`ii']'",`colspan`=`cc'+1'' - `colspan`cc'')
+						local osmcl `"{txt:{stata "`ocomm'":`olab'}}"' 
+					}
+					else {
+						local osmcl `"{txt:{stata "`ocomm'":`=`var'[`ii']'}}"'
+					}
+				}
+				else {
+					if (`istr') {
+						local olab = abbrev("`=`var'[`ii']'",`colspan`=`cc'+1'' - `colspan`cc'')
+						local osmcl `"`olab'"'
+					}
+					else {
+						local osmcl `"`=`var'[`ii']'"'
+					}					
+				}
+				
+				if inlist("`: format `var''","%tc","%tC","%td") {
+					noi di as smcl `"{col `colspan`cc++''}"' `: format `var'' `osmcl' _c
+				}
+				else {
+					noi di as smcl `"{col `colspan`cc++''}`osmcl'"' _c
+				}				
+				
+			
+			}	
+			
+			return local cmd`ii' `"`ocomm'"'
+		
+		}
+		
+		noi di as txt _n "({it:Click on a highlighted link to load related data})"
+	}
+	
+end
 
 /* Replace UNICODE characters */
 program cleanutf8
