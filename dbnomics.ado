@@ -1,4 +1,4 @@
-*! Ver 1.1.0 19oct2018 Simone Signore
+*! Ver 1.1.1 21oct2018 Simone Signore
 *! Stata API client for db.nomics.world. Requires libjson and moss
 capture program drop dbnomics
 
@@ -9,17 +9,16 @@ program dbnomics, rclass
 	version 14.0			
 	
 	/* Changelog
-	20mar2018  v1.0.0 Initial release
-	08may2018  v1.0.1 Fixed syntax parsing bug
-	23may2018  v1.0.2 Updated to API ver 0.18.0
-	15oct2018  v1.0.3 Updated to API ver 0.21.5
-	19oct2018  v1.1.0 Added news API and smart listing (0.21.6)
+		20mar2018  v1.0.0 Initial release
+		08may2018  v1.0.1 Fixed syntax parsing bug
+		23may2018  v1.0.2 Updated to API ver 0.18.0
+		15oct2018  v1.0.3 Updated to API ver 0.21.5
+		19oct2018  v1.1.0 Added news API and smart listing (0.21.6)
+		21oct2018  v1.1.1 Improved parsing engine, added search endpoint (ver 0.21.6)
 	*/
 	
 	/*TODO:
-	Make sure return values in dbnomics_list are propagated upwards
-	Refine series parser to capture additional panel objects
-	Integrate dataset search endpoint?
+		Any other subcommand that could use dbnomics_list?
 	*/
 
 	/* Housekeeping: taken from insheetjson */
@@ -42,39 +41,44 @@ program dbnomics, rclass
 	local apipath = "https://api.db.nomics.world" /* https://api.db.nomics.world/api/v1/json */
 	
 	/* Parse subcall*/
-	if inlist("`subcall'","provider","providers") {
+	if inlist(`"`subcall'"',"provider","providers") {
 		dbnomics_providers `apipath', `clear'
 	}
-	else if "`subcall'" == "tree" {
+	else if `"`subcall'"' == "tree" {
 		dbnomics_tree `apipath', `clear' `macval(options)'
 	}
-	else if inlist("`subcall'","data","datastructure") {
+	else if inlist(`"`subcall'"',"data","datastructure") {
 		dbnomics_structure `apipath', `clear' `macval(options)'
 	}
-	else if "`subcall'" == "series" {
+	else if `"`subcall'"' == "series" {
 		dbnomics_series `apipath', `clear' `macval(options)'
 	}
-	else if "`subcall'" == "import" {
+	else if `"`subcall'"' == "import" {
 		/* timer on 1 */
 		dbnomics_import `apipath', `clear' `macval(options)'
 		/* timer off 1
 		timer list 1
 		timer clear 1 */
 	}
-	else if "`subcall'" == "news" {
+	else if `"`subcall'"' == "news" {
 		dbnomics_news `apipath', `clear' `macval(options)'
-	}	
-	else if (substr("`subcall'",1,4) == "use ") {
+	}
+	else if (substr(`"`subcall'"',1,4) == "use ") {
 		di as err "Sorry, the {err:{bf:dbnomics use}} API is deprecated. Use {cmd:dbnomics import, seriesids(...)} instead."
 		exit 198
 		/* tokenize `macval(subcall)'
 		dbnomics_use `2', `clear' `macval(options)' path(`apipath') */
+	}
+	else if (substr(`"`subcall'"',1,5) == "find ") {
+		tokenize `"`subcall'"'
+		dbnomics_query `2', `clear' `macval(options)' path(`apipath')
 	}	
 	else {
 		di as err "dbnomics: unknown subcommand "`""`subcall'""'"" 
 		exit 198
 	}
-
+	
+	return add
 	return local endpoint "`subcall'"
 	
 	/* Housekeeping */
@@ -288,7 +292,7 @@ program dbnomics_structure
 		mata: pushdata(tablestruct, tokenizer("dimensions_values_labels", "_"));
 		
 		/* Add additional statistics (default) */
-		if "`stat'" == "" {
+		if ("`stat'" == "") {
 			
 			/* Select facets node */
 			mata: statstruct = structure->getNode("series_dimensions_facets");
@@ -301,23 +305,23 @@ program dbnomics_structure
 			mata: st_local("nofacets", strofreal(tablesstat == "0"));
 			
 			if (`nofacets' == 0) {
-			
+				
 				tempfile statdata
 				preserve
 				
 					drop _all
 						
 					/* Keep only additional data */
-					mata: tablesstat = select(tablesstat, tablesstat[.,cols(tablesstat)-1] :== "count");
+					mata: tablesstat = select(tablesstat, tablesstat[., 2] :!= "label");
 					
-					/* Keep even cols */
-					mata: tablesstat = select(tablesstat, J(1, ceil(cols(tablesstat)/2), (1,0))[.,1..cols(tablesstat)]);
-					mata: pushdata(tablesstat, tokenizer("dimensions_values_seriesnr", "_"));
-				
+					/* Keep relevant cols */
+					mata: pushdata(tablesstat, tokenizer("dimensions_tracker_values_seriesnr_labels", "_"));
+					
 					qui save `statdata'
 				restore
 				
 				qui merge 1:1 dimensions values using `statdata', keep(1 3) nogen norep
+				capture drop tracker
 			
 			}
 			
@@ -612,22 +616,12 @@ program dbnomics_import
 					tempfile dbseries`jj'
 					if (`jj' > 1) local appendlist "`appendlist' "`dbseries`jj''""
 				
-					/* preserve */
-					
 						drop _all
 						
 						/* Parse series data */
 						capture mata: seriesformat(srsdata, `jj');
 						save `dbseries`jj''
-						
-						/* if (`jj' > 1) {
-							append using `theseries'
-							save `theseries', replace
-						}
-						else {
-							save `theseries'
-						} */
-						
+					
 						if (`jj' == `series_found') {
 							noi di "."
 						}
@@ -635,8 +629,6 @@ program dbnomics_import
 							noi di "." _c
 						}
 					
-					/* restore */
-				
 				}
 				
 				use `dbseries1', clear
@@ -791,8 +783,7 @@ program dbnomics_news
 		destring _all, replace
 		remove_destrchar _all
 		auto_labels _all
-	}	
-	
+	}
 	
 	quietly {
 		/* Parse dates */
@@ -820,6 +811,7 @@ program dbnomics_news
 	
 	}
 	
+	/* Display results */
 	dbnomics_list `ordlist', target(code) pr(provider_code) subcall(structure) apipath("`path'") show(`shownum') `showall'
 	
 	/* Add metadata as dataset data characteristic */
@@ -828,25 +820,164 @@ program dbnomics_news
 	
 end
 
+/*8. Search data and series */
+program dbnomics_query, rclass
+	
+	syntax anything(name=query), [CLEAR PATH(string asis) LIMIT(integer 20) OFFSET(integer 0) ALLresults]
+	
+	/* Parse clear option*/
+	if ("`clear'" == "") {
+		if `c(width)' > 0 {
+			di as err "no; data in memory would be lost. Use the {cmd:clear} option"
+			exit 4
+		}
+	} 
+	else {
+		clear
+	}	
+	
+	display as txt "Searching for {bf:`query'} in datasets and series..." _c
+	
+	/* Parse allres option */
+	if ("`allresults'" != "") {
+		local calls 2
+		local limit 1
+	}
+	else {
+		local calls 1
+	}
+	
+	/* Save json locally to reduce server load over multiple calls */
+	tempfile jdata
+	
+	while (`calls--') {
+		
+		/* Setup call*/
+		mata: st_local("queryenc", urlencode(`"`query'"'))
+		local apipath `"`path'/search?q=`queryenc'&limit=`limit'&offset=`offset'"'	
+	
+		capture copy "`apipath'" `jdata', replace
+		if (inrange(_rc,630,696) | _rc == 601) {
+			if (_rc == 601) di as err "Network error. Invalid API endpoint."
+			exit _rc
+		}
+		else if (_rc > 0) {
+			di as err "Kernel panic. Abort"
+			exit _rc
+		}
+	
+		/* Parse number of results */
+		mata: qresult = fetchjson("`jdata'", "results");
+		mata: numseries = fetchkeyvals(qresult, ("num_found"));
+		mata: st_local("results_found", numseries[1]);	
+		
+		if ("`allresults'" != "") local limit = `results_found'
+		
+	}
+	
+	/* Parse JSON */
+	mata: qmain = fetchjson("`jdata'", "");
+	
+	/* Check for error in response */
+	mata: parseresperr(qmain);
+	
+	/* Parse metadata */
+	mata: st_local("nomicsmeta", parsemeta(qmain));
+	
+	/* Call mata function */
+	if (`results_found' > 0) {
+		
+		mata: resnode = qresult->getNode("docs");
+		mata: pushdata(json2table(resnode), jsoncolsArray(resnode, 0)');
+			
+		/* Reduce space (this can be automated in the future)*/
+		qui compress	
+		
+		/* Housekeeping */
+		quietly {
+			cleanutf8
+			destring _all, replace
+			remove_destrchar _all
+			auto_labels _all
+		}	
+		
+		quietly {
+			/* Parse dates */
+			unab varlist : _all
+			local dbdates "converted_at indexed_at"
+			local dbdates : list dbdates & varlist
+		
+			local iter 0
+
+			foreach dbd of local dbdates {
+				tempvar dbd`iter'
+				gen `dbd`iter'' = clock(`dbd',"YMD#hms#")
+				order `dbd`iter'', after(`dbd')
+				la var `dbd`iter'' "`: var lab `dbd''"
+				drop `dbd'
+				clonevar `dbd' = `dbd`iter''
+				format %tc `dbd'
+				order `dbd', after(`dbd`iter++'')
+			}
+		
+			/* Order dataset */
+			local ordlist "type id provider_code name provider_name code nb_series nb_matching_series indexed_at"
+			local ordlist : list ordlist & varlist
+			capture order `ordlist', first
+			
+			/* Control data */
+			local ctrlist "_version_ json_data_commit_ref"
+			local ctrlist : list ctrlist & varlist
+			capture order `ctrlist', last
+			
+			/* Prepare to display results */
+			local displaylist "type provider_name name code nb_series nb_matching_series indexed_at"
+			local displaylist : list displaylist & varlist
+		}
+	
+		if (`limit' < `results_found') local extramsg " (`limit' shown)"
+		display as txt "`results_found' `=plural(`results_found', "result")' found`extramsg'." _n
+		
+		/* Display results */
+		tempvar subcallvar
+		gen `subcallvar' = cond(type == "dataset", "structure", "import")
+		dbnomics_list `displaylist', target(code) pr(provider_code) subcall(`subcallvar') apipath("`path'") showall varsubcall
+		
+	}
+	else {
+		display as err "no results found." _n
+	}
+	
+	/* Propagate rclass */
+	return add
+	
+	/* Add metadata as dataset data characteristic */
+	char _dta[endpoint] "`apipath'"
+	char _dta[_meta] "`nomicsmeta'"
+	
+end
+
+
+
 /* 99. Utilities */
 
 /* List data with smart linking */
 capture program drop dbnomics_list
 program dbnomics_list, rclass
 
-	syntax varlist(min=2), Target(varname) SUBCALL(string) APIPATH(string) [SHOWnum(integer 20) PRoviderlist(varname) Datasetlist(varname) SHOWall]
+	syntax varlist(min=2), Target(varname) SUBCALL(string) APIPATH(string) [SHOWnum(integer 20) PRoviderlist(varname) Datasetlist(varname) SHOWall VARSUBCALL]
 	
 	/* Allocate screen space */
 	local cc = 1
 	local colspan0 = 1
 	/* unab varlist : _all		TO REMOVE */
-	local maxshare = round(1.30 * (`c(linesize)'/ `:list sizeof varlist'),1)
+	local maxshare = round(1.40 * (`c(linesize)'/ `:list sizeof varlist'), 1)
 	foreach var of local varlist {
 		local varlen = length("`var'") + 3
 		local col`cc' : format `var'
 		/* default colspan*/
 		local colspan`cc' = max(`varlen', 10) + `colspan`=`cc'-1''
-		if (regexm("`col`cc''","%([0-9]+).*[a-z]$")) local colspan`cc' = min(`maxshare', max(`varlen', real(regexs(1)))) + `colspan`=`cc++'-1''
+		if (regexm("`col`cc''","%([0-9]+).*[a-z]$")) local colspan`cc' = min(`maxshare', max(`varlen', real(regexs(1)))) + `colspan`=`cc++'-1'' + `=("`var'" == "`target'")'
 	}
 	
 	/* Write headers */
@@ -862,11 +993,19 @@ program dbnomics_list, rclass
 	
 	/* Write table content */
 	if ("`showall'" != "") local shownum = `c(N)'
+	
 	quietly {
 		forval ii = 1/`=min(`shownum', `c(N)')' {
 			
 			local cc = 0
 			noi di as smcl _n " " _c
+		
+			if ("`varsubcall'" != "") {
+				local subcall_loop = `subcall'[`ii']
+			}
+			else {
+				local subcall_loop : copy local subcall
+			}
 		
 			foreach var of local varlist {
 				
@@ -876,10 +1015,10 @@ program dbnomics_list, rclass
 				/* Check if variable is the target var */
 				if ("`var'" == "`target'") {
 					/* Build command */
-					if ("`subcall'" == "structure") {
+					if ("`subcall_loop'" == "structure") {
 						local ocomm "dbnomics data, pr(`=`providerlist'[`ii']') d(`=`target'[`ii']') clear"
 					}
-					else if ("`subcall'" == "import") {
+					else if ("`subcall_loop'" == "import") {
 						local ocomm "dbnomics import, pr(`=`providerlist'[`ii']') d(`=`datasetlist'[`ii']') series(`=`target'[`ii']') clear"
 					}
 					
@@ -1085,6 +1224,7 @@ mata
 		pointer (class libjson scalar) scalar series
 		pointer (class libjson scalar) scalar value
 		pointer (class libjson scalar) scalar period
+		pointer (class libjson scalar) scalar cell
 		string matrix thedata
 		string matrix oinfo
 		string matrix oinfo_p
@@ -1094,16 +1234,36 @@ mata
 		/* Loop through series */
 		series = data->getArrayValue(cursor);
 
+		/* Parse nr. of kkeys */
+		selector = series->listAttributeNames(0);		
+		/* printf("%s isonefine \n", strofreal(cols(selector))); */
+		
+		/*Initialise output*/
+		thedata = J(0,0,"");
+		scollector = J(1,0,"");
+		
 		/* Series data (period-value) */
-		value = series->getNode("value");
-		period = series->getNode("period");
-
-		/* Parse values */
-		thedata = (parsearray(period,0)',parsearray(value,0)');
-
+			/* printf("made it here \n") */
+		for (kk=1; kk<=cols(selector); kk++) {
+			cell = series->getAttribute(selector[kk]);
+			if ((cell->isArray()) && (cell->bracketArrayScalarValues() != "[]")) {
+				scollector = (scollector, selector[kk]);
+				cellarray = parsearray(cell,0)';
+				if (rows(thedata) == 0) {
+					thedata = J(rows(cellarray), 0, "");
+				}
+				thedata = (thedata, cellarray);
+			}
+		}
+				
 		/* Other info */
 		oinfo = dict2table(series, dictdim(series)[.,2] - 1);
-		oinfo_p = select(oinfo, oinfo[.,1]:!="period" :& oinfo[.,1]:!="value")';
+		
+		/* Filter out stuff that's already been parsed */
+		for (kk=1; kk<=cols(scollector); kk++) {
+			oinfo = select(oinfo, oinfo[.,1]:!=scollector[kk]);
+		}
+		oinfo_p = oinfo';
 
 		/* Adjust other info */
 		odata = J(rows(thedata), 1, oinfo_p[2,.]);
@@ -1112,7 +1272,7 @@ mata
 		output = thedata, odata;
 
 		/* Export data */
-		pushdata(output, (("period","value"), oinfo_p[1,.]));
+		pushdata(output, (scollector, oinfo_p[1,.]));
 
 	}
 
@@ -1220,11 +1380,21 @@ mata
 			} else if (cell->isString()) {
 				output = output \ (selector[kk], cell->getString("",""), J(1, cols(output) - 2, ""));
 			} else if (cell->isArray()) {
-				output = output \ (selector[kk], cell->bracketArrayScalarValues(), J(1, cols(output) - 2, ""));
-			} else {
-				return(0);
-				exit();
-			}
+				if (cell->bracketArrayScalarValues() == "[]") {
+					content = json2table(cell)
+					if (cols(content) < cols(output)) {
+						yield = (strofreal(range(1, rows(content), 1)), content, J(rows(content), cols(output) - (cols(content) + 1), ""));
+					} else {
+						yield = content;
+					}
+					output = output \ yield;
+				} else {
+					output = output \ (selector[kk], cell->bracketArrayScalarValues(), J(1, cols(output) - 2, ""));
+				}
+			} 
+			
+			/* Skip cell if none of the above */
+			/* else {				return(0);				exit();			} */
 		}
 		return(output);
 	}
