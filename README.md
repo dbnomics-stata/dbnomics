@@ -3,9 +3,9 @@ Stata client for DB.nomics, the world's economic database (https://db.nomics.wor
 
 ## Description
 
-dbnomics provides a suite of tools to browse and import time series data from DB.nomics, the world's economic database (https://db.nomics.world). DB.nomics is a web-based platform that aggregates and maintains time series data from various statistical agencies across the world.  dbnomics only works with Stata 14.0 or higher, since it relies on the secure HTTP protocol (https).
+dbnomics provides a suite of tools to search, browse and import time series data from DB.nomics, the world's economic database (https://db.nomics.world).  DB.nomics is a web-based platform that aggregates and maintains time series data from various statistical agencies across the world.  dbnomics only works with Stata 14.0 or higher, since it relies on the secure HTTP protocol (https).
 
-dbnomics provides an interface to DB.nomics' RESTful API (https://api.next.nomics.world/apidocs), allowing for the advanced filtering of data using Stata's native options syntax (see Examples). To achieve this, the command relies on Erik Lindsley's libjson backend (ssc install libjson).
+dbnomics provides an interface to DB.nomics' RESTful API (https://api.db.nomics.world/apidocs), allowing for the advanced filtering of data using Stata's native options syntax (see Examples). To achieve this, the command relies on Erik Lindsley's libjson backend (ssc install libjson).
 
 ## Installation
 
@@ -29,8 +29,11 @@ dbnomics provides an interface to DB.nomics' RESTful API (https://api.next.nomic
 . // Import series for a given provider and dataset
 . dbnomics import , provider(PRcode) dataset(DScode) [clear limit(int) seriesids(SERIES_list) sdmx(SDMX_mask) dimensions_opt]
 
-. // Load one series via direct reference
-. dbnomics use SERIES_code , provider(PRcode) dataset(DScode) [clear delimiter(char)]
+. // Search for data across DB.nomics' providers
+. dbnomics find search_str [, clear limit(int) all]
+
+. // Load and display recently updated datasets
+. dbnomics news [, clear limit(int) all]
 ```
 
 ## Options
@@ -60,16 +63,17 @@ dbnomics provides an interface to DB.nomics' RESTful API (https://api.next.nomic
 
 - **sdmx(**SDMX_mask**)** accepts an SDMX REST query ("SDMX mask") containing dimensions to identify series for a provider(*PRcode*) and dataset(*DScode*) that supports this function.  A list of dimensions can be obtained using **dbnomics datastructure, provider(PRcode) dataset(DScode)**. **Note**: not all providers will support this feature. In such case **dbnomics import, (...)** may return a Warning: no series found error.
 
-### use
+### find/news
 
-- **delimiters(**"chars"[, collapse\|asstring]**)** allows to specify other separation characters.  By default, **dbnomics use ...**  will assume tab-separated data.  This option is generally not needed but accounts for potential future changes in the series specification of https://db.nomics.world.
+- **limit(**int**)** sets the maximum number of results to load and display.
+- **all** forces the download and display of all matching results. Note: this option may cause a server failure for queries with a large number of results.
 
 ## Remarks
 
 This program has two main dependencies:
 
-1. The Mata json library libjson by Erik Lindsley is needed to parse JSON strings. It can be found on SSC: `ssc install libjson`.
-2. The routine moss by Robert Picard & Nicholas J. Cox is needed to clean unicode sequences. It can be found on SSC: `ssc install moss`.
+1. The Mata json library **libjson** by Erik Lindsley is needed to parse JSON strings. It can be found on SSC: `ssc install libjson`.
+2. The routine **moss** by Robert Picard & Nicholas J. Cox is needed to clean unicode sequences. It can be found on SSC: `ssc install moss`.
 
 After each API call, dbnomics stores significant metadata in the form of dataset characteristics.  Type *char li _dta[]* after dbnomics to obtain important info about the data, e.g., the API endpoint.
 
@@ -101,22 +105,26 @@ Price deflator gross fixed capital formation: other investment
 ...
 3 series found and imported
 
-. // Load one AMECO/PIGOT series:
-. dbnomics use SVN.3.1.0.0.PIGOT, pr(AMECO) d(PIGOT) clear
-(2 vars, 60 obs)
-
 . // Eurostat typically supports SMDX queries
-Import all series in Eurostat/ei_bsin_m related to Belgium:
-. dbnomics import, provider(Eurostat) dataset(ei_bsin_m) geo(BE) clear
+Import all series in Eurostat/ei_bsin_q_r2 related to Belgium:
+. dbnomics import, provider(Eurostat) dataset(ei_bsin_q_r2) geo(BE) clear
 ................
 16 series found and imported
 
 . // Do the same using sdmx:
-. dbnomics import, provider(Eurostat) dataset(ei_bsin_m) sdmx(M.BAL...BE) clear
+. dbnomics import, provider(Eurostat) dataset(ei_bsin_q_r2) sdmx(Q.BS-CP3M-DM-BAL..BE) clear
 ................
 16 series found and imported
+
+. // Show recently updated datasets:
+. dbnomics news, clear
+(output omitted)
+
+. // Find topic of interest in DB.nomics' data:
+. dbnomics find "producer price", clear
+(output omitted)
 ```
 
-## Author
+## Bugs?
 
-Simone Signore (signoresimone at yahoo [dot] it)
+Write at: signoresimone at yahoo [dot] it

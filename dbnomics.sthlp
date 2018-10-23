@@ -1,5 +1,5 @@
 {smcl}
-{* *! version 1.0.0  11mar2018}{...}
+{* *! version 1.1.1  21oct2018}{...}
 {viewerjumpto "Syntax" "dbnomics##syntax"}{...}
 {viewerjumpto "Description" "dbnomics##description"}{...}
 {viewerjumpto "Options" "dbnomics##options"}{...}
@@ -17,12 +17,12 @@
 {title:Description}
 
 {pstd}
-{cmd:dbnomics} provides a suite of tools to browse and import time series data from DB.nomics, the world's economic database ({browse "https://db.nomics.world":https://db.nomics.world}).
+{cmd:dbnomics} provides a suite of tools to search, browse and import time series data from DB.nomics, the world's economic database ({browse "https://db.nomics.world":https://db.nomics.world}).
 DB.nomics is a web-based platform that aggregates and maintains time series data from various statistical agencies across the world.
 {cmd:dbnomics} only works with Stata 14.0 or higher, since it relies on the secure HTTP protocol ({it:https}).
 
 {pstd}
-{cmd:dbnomics} provides an interface to DB.nomics' RESTful API ({browse "https://api.next.nomics.world/apidocs":https://api.next.nomics.world/apidocs}), allowing for the advanced filtering of data using Stata's 
+{cmd:dbnomics} provides an interface to DB.nomics' RESTful API ({browse "https://api.db.nomics.world/apidocs":https://api.db.nomics.world/apidocs}), allowing for the advanced filtering of data using Stata's 
 native {help options:options} syntax (see {help dbnomics##examples:Examples}). To achieve this, the command relies on Erik Lindsley's libjson backend ({stata ssc install libjson:ssc install libjson}).
 
 {marker syntax}{...}
@@ -43,8 +43,11 @@ native {help options:options} syntax (see {help dbnomics##examples:Examples}). T
 {p 8 8 2} {it: Import series for a given provider and dataset} {p_end}
 {p 8 8 2} {cmdab:dbnomics} {cmdab:import} {cmd:,} {opt pr:ovider(PRcode)} {opt d:ataset(DScode)} [{opt clear} {opt limit(int)} {opt series:ids(SERIES_list)} {opt sdmx(SDMX_mask)} {it:dimensions_opt}] {p_end}
 
-{p 8 8 2} {it: Load one series via direct reference} {p_end}
-{p 8 8 2} {cmdab:dbnomics} {cmdab:use} {it:SERIES_code} {cmd:,} {opt pr:ovider(PRcode)} {opt d:ataset(DScode)} [{opt clear} {opt delim:iter(char)}] {p_end}
+{p 8 8 2} {it: Search for data across DB.nomics' providers} {p_end}
+{p 8 8 2} {cmdab:dbnomics} {cmdab:find} {it:search_str} [{cmd:,} {opt clear} {opt limit(int)} {opt all}] {p_end}
+
+{p 8 8 2} {it: Load and display recently updated datasets} {p_end}
+{p 8 8 2} {cmdab:dbnomics} {cmdab:news} [{cmd:,} {opt clear} {opt limit(int)} {opt all}] {p_end}
 
 
 {synoptset 25 tabbed}{...}
@@ -56,7 +59,7 @@ native {help options:options} syntax (see {help dbnomics##examples:Examples}). T
 {synopt:{bf:clear}}replace data in memory {p_end}
 
 {syntab:For {cmd:datastructure} only}
-{synopt:{bf:nostat}}disable the parsing of series statistics (speeds up importing){p_end}
+{synopt:{bf:nostat}}disable the parsing of series statistics (may speed up importing){p_end}
 
 {syntab:For {cmd:series} and {cmd:import} only}
 {synopt:{bf:limit(}{it:int}{bf:)}}set the limit for the number of series to load{p_end}
@@ -66,8 +69,9 @@ native {help options:options} syntax (see {help dbnomics##examples:Examples}). T
 {synopt:{bf:seriesids(}{it:SERIES_list}{bf:)}}input a comma-separated list to load specific time series{p_end}
 {synopt:{bf:sdmx(}{it:SDMX_mask}{bf:)}}input an SDMX mask to select specific series ({bf:Note:} not all providers support this option){p_end}
 
-{syntab:For {cmd:use} only}
-{synopt:{bf:delimiter(}{it:char}{bf:)}}define the separation character (default: {it:tab}){p_end}
+{syntab:For {cmd:find} and {cmd:news} only}
+{synopt:{bf:limit(}{it:int}{bf:)}}maximum number of results to display{p_end}
+{synopt:{bf:all}}show all results {p_end}
 {synoptline}
 {p2colreset}{...}
 
@@ -119,13 +123,13 @@ if a {opt dimension_opt(dim_values)} is invalid, {cmd:dbnomics} will likely retu
 A list of dimensions can be obtained using {cmd: dbnomics datastructure,} {opt provider(PRcode)} {opt dataset(DScode)}. {bf:Note:} not all providers will support this feature. 
 In such case {cmd: dbnomics import, }{opt (...)} may return a {err:Warning: no series found} error. {p_end}
 
-{bf:{dlgtab:use}}
+{bf:{dlgtab:find/news}}
+
+{phang}{opt limit(int)} sets the maximum number of results to load and display. {p_end}
+{phang}{opt all} forces the download and display of all matching results. {bf:Note:} this option may cause a server failure for queries with a large number of results.{p_end}
 
 {phang}
-{cmd:delimiters("}{it:chars}{cmd:"}[{cmd:, collapse}|{cmd:asstring}]{cmd:)}
-allows to specify other separation characters.  By default, {cmdab:dbnomics} {cmdab:use} {cmd:{it:...}} 
-will assume tab-separated data. 
-This option is generally not needed but accounts for potential future changes in the series specification of {browse "https://db.nomics.world":https://db.nomics.world}. {p_end}
+
 
 {marker remarks}{...}
 {title:Remarks}
@@ -169,24 +173,28 @@ Type {cmd:{stata "char li _dta[]":char li _dta[]}} after {cmd:dbnomics} to obtai
 {space 8}...
 {space 8}3 series found and imported
 
-{pstd}{it:Load one {bf:AMECO/}{bf:PIGOT} series:}{p_end}
-{space 8}{cmd:. dbnomics use SVN.3.1.0.0.PIGOT, pr(AMECO) d(PIGOT) clear}
-{space 8}{txt:({stata "dbnomics use SVN.3.1.0.0.PIGOT, pr(AMECO) d(PIGOT) clear ":click to run})}
-{space 8}(2 vars, 60 obs)
-
 {pstd}{it:{bf:Eurostat} typically supports SMDX queries}{p_end}
-{pstd}{it:Import all series in {bf:Eurostat/}{bf:ei_bsin_m} related to Belgium:}{p_end}
-{space 8}{cmd:. dbnomics }{cmdab:import}{cmd:, }{cmdab:pr:ovider}{cmd:(Eurostat) {cmdab:d:ataset}{cmd:(ei_bsin_m)} {cmd:geo(BE)} clear}
-{space 8}{txt:({stata "dbnomics import, provider(Eurostat) dataset(ei_bsin_m) geo(BE) clear":click to run})}
+{pstd}{it:Import all series in {bf:Eurostat/}{bf:ei_bsin_q_r2} related to Belgium:}{p_end}
+{space 8}{cmd:. dbnomics }{cmdab:import}{cmd:, }{cmdab:pr:ovider}{cmd:(Eurostat) {cmdab:d:ataset}{cmd:(ei_bsin_q_r2)} {cmd:geo(BE)} clear}
+{space 8}{txt:({stata "dbnomics import, provider(Eurostat) dataset(ei_bsin_q_r2) geo(BE) clear":click to run})}
 {space 8}................
 {space 8}16 series found and imported
 
 {pstd}{it:Do the same using {cmd:sdmx}:}{p_end}
-{space 8}{cmd:. dbnomics }{cmdab:import}{cmd:, }{cmdab:pr:ovider}{cmd:(Eurostat) {cmdab:d:ataset}{cmd:(ei_bsin_m)} {cmd:sdmx(M.BAL...BE)} clear}
-{space 8}{txt:({stata "dbnomics import, provider(Eurostat) dataset(ei_bsin_m) sdmx(M.BAL...BE) clear":click to run})}
+{space 8}{cmd:. dbnomics }{cmdab:import}{cmd:, }{cmdab:pr:ovider}{cmd:(Eurostat) {cmdab:d:ataset}{cmd:(ei_bsin_q_r2)} {cmd:sdmx(Q.BS-CP3M-DM-BAL..BE)} clear}
+{space 8}{txt:({stata "dbnomics import, provider(Eurostat) dataset(ei_bsin_q_r2) sdmx(Q.BS-CP3M-DM-BAL..BE) clear":click to run})}
 {space 8}................
 {space 8}16 series found and imported
 
+{pstd}{it:Show recently updated datasets:}{p_end}
+{space 8}{cmd:. dbnomics news, clear}
+{space 8}{txt:({stata "dbnomics news, clear ":click to run})}
+{space 8}{it:(output omitted)}
+
+{pstd}{it:Find topic of interest in DB.nomics' data:}{p_end}
+{space 8}{cmd:. dbnomics find "producer price", clear}
+{space 8}{txt:({stata `"dbnomics find "producer price", clear "':click to run})}
+{space 8}{it:(output omitted)}
 
 {marker results}{...}
 {title:Stored results}
@@ -197,6 +205,7 @@ Type {cmd:{stata "char li _dta[]":char li _dta[]}} after {cmd:dbnomics} to obtai
 {synoptset 15 tabbed}{...}
 {p2col 5 15 19 2: Local}{p_end}
 {synopt:{cmd:endpoint}}name of {cmd:dbnomics} subcommand{p_end}
+{synopt:{cmd:cmd#}}command to load # result shown (For {cmd:find} and {cmd:news} only){p_end}
 {p2colreset}{...}
 
 {marker author}{...}

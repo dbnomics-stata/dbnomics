@@ -523,7 +523,15 @@ program dbnomics_import
 	/* Parse filtering options */
 	_optdict `macval(options)'
 	if (`"`dimdict'"' != "") local thequery "&dimensions=`dimdict'"	
-	if (`"`sdmx'"' != "") local thequery "&sdmx_filter=`sdmx'"
+	if (`"`sdmx'"' != "") {
+		/* First check if the provider is compatible with SMDX */
+		_sdmx_check `provider'
+		if (`sdmx_compatible' == 0) {
+			di as smcl "{err:Provider `provider' does not support {cmd:sdmx} masks. Use {it:dimensions_opt} instead.}"
+			exit 198
+		}
+		local thequery "&series_code_mask=`sdmx'"
+	}
 
 	/* Parse list of series (must be comma separated)*/
 	if (`"`seriesids'"' != "") {
@@ -731,7 +739,7 @@ end
 /*7. Last updates */
 program dbnomics_news
 	
-	syntax anything(name=path), [CLEAR SHOWnum(integer 20) SHOWall]
+	syntax anything(name=path), [CLEAR LIMIT(integer 20) ALLnews]
 	
 	/* Setup call*/
 	local apipath = "`path'/last-updates"
@@ -812,7 +820,7 @@ program dbnomics_news
 	}
 	
 	/* Display results */
-	dbnomics_list `ordlist', target(code) pr(provider_code) subcall(structure) apipath("`path'") show(`shownum') `showall'
+	dbnomics_list `ordlist', target(code) pr(provider_code) subcall(structure) apipath("`path'") show(`limit') `allnews'
 	
 	/* Add metadata as dataset data characteristic */
 	char _dta[endpoint] "`apipath'"
@@ -1147,6 +1155,32 @@ program auto_labels
 	
 end
 
+/* Check SDMX compatibility */
+program _sdmx_check
+	
+	args prtocheck
+	
+	quietly {
+		/* Try to get up-to-date list from the web */
+		capture nobreak {
+			preserve
+				import delimited settings config using "https://git.nomics.world/dbnomics/dbnomics-api/raw/master/dbnomics_api/application.cfg", delim("=") clear
+				keep if trim(itrim(settings)) == "SERIES_CODE_MASK_COMPATIBLE_PROVIDERS"
+				replace config = subinstr(subinstr(subinstr(subinstr(config,",","",.), "}","",.), "{","",.),`"""',"",.)			/*"'*/
+				local checklist = config[1]
+			restore
+		}
+		if _rc {
+			local checklist "BIS ECB Eurostat FED IMF IMF-WEO INSEE OECD WTO"
+		}
+		local thetest : list prtocheck & checklist	
+	}
+	
+	/* Return test results */	
+	c_local sdmx_compatible = (`"`thetest'"' != "")
+			
+end
+
 /* Compile dimensions dict based on macval(options) */
 capture program drop _optdict
 program _optdict
@@ -1222,8 +1256,6 @@ mata
 	void seriesformat(pointer (class libjson scalar) scalar data, real scalar cursor) {
 
 		pointer (class libjson scalar) scalar series
-		pointer (class libjson scalar) scalar value
-		pointer (class libjson scalar) scalar period
 		pointer (class libjson scalar) scalar cell
 		string matrix thedata
 		string matrix oinfo
@@ -1837,9 +1869,3 @@ end
 
 exit
 
-/* Define functions */
-/*mata drop getcols()
-mata drop jsoncols()
-mata drop getproviders()
-mata drop parseproviders()*/
-/*  mata drop getcell()  */
