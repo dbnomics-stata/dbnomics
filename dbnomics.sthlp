@@ -175,16 +175,16 @@ Type {cmd:{stata "char li _dta[]":char li _dta[]}} after {cmd:dbnomics} to obtai
 
 {pstd}{it:{bf:Eurostat} typically supports SMDX queries}{p_end}
 {pstd}{it:Import all series in {bf:Eurostat/}{bf:ei_bsin_q_r2} related to Belgium:}{p_end}
-{space 8}{cmd:. dbnomics }{cmdab:import}{cmd:, }{cmdab:pr:ovider}{cmd:(Eurostat) {cmdab:d:ataset}{cmd:(ei_bsin_q_r2)} {cmd:geo(BE)} clear}
-{space 8}{txt:({stata "dbnomics import, provider(Eurostat) dataset(ei_bsin_q_r2) geo(BE) clear":click to run})}
-{space 8}................
-{space 8}16 series found and imported
+{space 8}{cmd:. dbnomics }{cmdab:import}{cmd:, }{cmdab:pr:ovider}{cmd:(Eurostat) {cmdab:d:ataset}{cmd:(ei_bsin_q_r2)} {cmd:geo(BE) s_adj(NSA)} clear}
+{space 8}{txt:({stata "dbnomics import, provider(Eurostat) dataset(ei_bsin_q_r2) geo(BE) s_adj(NSA) clear":click to run})}
+{space 8}..............
+{space 8}14 series found and imported
 
 {pstd}{it:Do the same using {cmd:sdmx}:}{p_end}
-{space 8}{cmd:. dbnomics }{cmdab:import}{cmd:, }{cmdab:pr:ovider}{cmd:(Eurostat) {cmdab:d:ataset}{cmd:(ei_bsin_q_r2)} {cmd:sdmx(Q.BS-CP3M-DM-BAL..BE)} clear}
-{space 8}{txt:({stata "dbnomics import, provider(Eurostat) dataset(ei_bsin_q_r2) sdmx(Q.BS-CP3M-DM-BAL..BE) clear":click to run})}
-{space 8}................
-{space 8}16 series found and imported
+{space 8}{cmd:. dbnomics }{cmdab:import}{cmd:, }{cmdab:pr:ovider}{cmd:(Eurostat) {cmdab:d:ataset}{cmd:(ei_bsin_q_r2)} {cmd:sdmx(Q..NSA.BE)} clear}
+{space 8}{txt:({stata "dbnomics import, provider(Eurostat) dataset(ei_bsin_q_r2) sdmx(Q..NSA.BE) clear":click to run})}
+{space 8}..............
+{space 8}14 series found and imported
 
 {pstd}{it:Show recently updated datasets:}{p_end}
 {space 8}{cmd:. dbnomics news, clear}

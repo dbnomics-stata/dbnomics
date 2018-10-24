@@ -107,14 +107,14 @@ Price deflator gross fixed capital formation: other investment
 
 . // Eurostat typically supports SMDX queries
 Import all series in Eurostat/ei_bsin_q_r2 related to Belgium:
-. dbnomics import, provider(Eurostat) dataset(ei_bsin_q_r2) geo(BE) clear
-................
-16 series found and imported
+. dbnomics import, provider(Eurostat) dataset(ei_bsin_q_r2) geo(BE) s_adj(NSA) clear
+..............
+14 series found and imported
 
 . // Do the same using sdmx:
-. dbnomics import, provider(Eurostat) dataset(ei_bsin_q_r2) sdmx(Q.BS-CP3M-DM-BAL..BE) clear
-................
-16 series found and imported
+. dbnomics import, provider(Eurostat) dataset(ei_bsin_q_r2) sdmx(Q..NSA.BE) clear
+..............
+14 series found and imported
 
 . // Show recently updated datasets:
 . dbnomics news, clear
