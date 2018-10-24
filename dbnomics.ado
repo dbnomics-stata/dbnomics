@@ -139,13 +139,35 @@ program dbnomics_providers
 	
 	/* Housekeeping */
 	quietly {
+	
 		cleanutf8
 		destring _all, replace
 		remove_destrchar _all
 		auto_labels _all
-	}	
 	
-	capture order code name region, first
+		/* Parse dates */
+		unab varlist : _all
+		local dbdates "converted_at indexed_at"
+		local dbdates : list dbdates & varlist
+	
+		local iter 0
+
+		foreach dbd of local dbdates {
+			tempvar dbd`iter'
+			gen `dbd`iter'' = clock(`dbd',"YMD#hms#")
+			order `dbd`iter'', after(`dbd')
+			la var `dbd`iter'' "`: var lab `dbd''"
+			drop `dbd'
+			clonevar `dbd' = `dbd`iter''
+			format %tc `dbd'
+			order `dbd', after(`dbd`iter++'')
+		}
+	
+		/* Order dataset */
+		local ordlist "code name region"
+		local ordlist : list ordlist & varlist
+		capture order `ordlist', first
+	}	
 	
 	/* Add metadata as dataset data characteristic */
 	char _dta[endpoint] "`apipath'"
@@ -289,7 +311,7 @@ program dbnomics_structure
 	if ("`nullstruct'" == "0") {
 	
 		mata: tablestruct = dict2table(datastruct, dictdim(datastruct)[.,2]);
-		mata: pushdata(tablestruct, tokenizer("dimensions_values_labels", "_"));
+		mata: pushdata(tablestruct[.,1..3], tokenizer("dimensions_values_labels", "_"));
 		
 		/* Add additional statistics (default) */
 		if ("`stat'" == "") {
@@ -320,7 +342,7 @@ program dbnomics_structure
 					qui save `statdata'
 				restore
 				
-				qui merge 1:1 dimensions values using `statdata', keep(1 3) nogen norep
+				qui merge 1:1 dimensions values using `statdata', nogen norep
 				capture drop tracker
 			
 			}
