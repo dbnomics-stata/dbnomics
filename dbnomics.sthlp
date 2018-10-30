@@ -1,5 +1,5 @@
 {smcl}
-{* *! version 1.1.1  21oct2018}{...}
+{* *! version 1.1.2  30oct2018}{...}
 {viewerjumpto "Syntax" "dbnomics##syntax"}{...}
 {viewerjumpto "Description" "dbnomics##description"}{...}
 {viewerjumpto "Options" "dbnomics##options"}{...}
@@ -214,3 +214,5 @@ Type {cmd:{stata "char li _dta[]":char li _dta[]}} after {cmd:dbnomics} to obtai
 {pstd}
 	Simone Signore{break}
 	signoresimone at yahoo [dot] it {p_end}
+	https://dreameater89.github.io/dbnomics/
+

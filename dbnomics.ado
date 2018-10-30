@@ -1,4 +1,4 @@
-*! Ver 1.1.1 21oct2018 Simone Signore
+*! Ver 1.1.2 30oct2018 Simone Signore
 *! Stata API client for db.nomics.world. Requires libjson and moss
 capture program drop dbnomics
 
@@ -15,6 +15,7 @@ program dbnomics, rclass
 		15oct2018  v1.0.3 Updated to API ver 0.21.5
 		19oct2018  v1.1.0 Added news API and smart listing (0.21.6)
 		21oct2018  v1.1.1 Improved parsing engine, added search endpoint (ver 0.21.6)
+		30oct2018  v1.1.2 Fixed bug in dbnomics news
 	*/
 	
 	/*TODO:
@@ -842,6 +843,7 @@ program dbnomics_news
 	}
 	
 	/* Display results */
+	if ("`allnews'" != "") local allnews showall
 	dbnomics_list `ordlist', target(code) pr(provider_code) subcall(structure) apipath("`path'") show(`limit') `allnews'
 	
 	/* Add metadata as dataset data characteristic */
