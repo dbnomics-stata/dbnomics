@@ -1,4 +1,4 @@
-*! Ver 1.1.2 30oct2018 Simone Signore
+*! Ver 1.2.0 17may2020 Simone Signore
 *! Stata API client for db.nomics.world. Requires libjson and moss
 capture program drop dbnomics
 
@@ -16,6 +16,7 @@ program dbnomics, rclass
 		19oct2018  v1.1.0 Added news API and smart listing (0.21.6)
 		21oct2018  v1.1.1 Improved parsing engine, added search endpoint (ver 0.21.6)
 		30oct2018  v1.1.2 Fixed bug in dbnomics news
+		17may2020  v1.2.0 Updated to API ver 0.22.0
 	*/
 	
 	/*TODO:
@@ -39,7 +40,7 @@ program dbnomics, rclass
 	syntax [anything(name=subcall id="subcall list")], [CLEAR *]
 
 	/* Setup API endpoint */
-	local apipath = "https://api.db.nomics.world" /* https://api.db.nomics.world/api/v1/json */
+	local apipath = "https://api.db.nomics.world/v22" /* https://api.db.nomics.world/api/v1/json */
 	
 	/* Parse subcall*/
 	if inlist(`"`subcall'"',"provider","providers") {
