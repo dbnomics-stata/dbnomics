@@ -49,7 +49,7 @@ program dbnomics, rclass
 	else if `"`subcall'"' == "tree" {
 		dbnomics_tree `apipath', `clear' `macval(options)'
 	}
-	else if inlist(`"`subcall'"',"data","datastructure") {
+	else if strpos("datastructure", `"`subcall'"') & length(`"`subcall'"') >= 4 {
 		dbnomics_structure `apipath', `clear' `macval(options)'
 	}
 	else if `"`subcall'"' == "series" {
@@ -84,7 +84,7 @@ program dbnomics, rclass
 	return local endpoint "`subcall'"
 	
 	/* Housekeeping */
-	mata: mata clear	
+	/* mata: mata clear	 */
 
 end
 
@@ -269,7 +269,7 @@ program dbnomics_structure
 	syntax anything(name=path), PRovider(string) Dataset(string) [CLEAR noSTAT]
 	
 	/* Setup call*/
-	local apipath = "`path'/`provider'/`dataset'/series?limit=0&offset=0"
+	local apipath = "`path'/series/`provider'/`dataset'?facets=true&metadata=true&format=json&limit=0&offset=0"
 	
 	/* Parse clear option*/
 	if ("`clear'" == "") {
@@ -294,6 +294,8 @@ program dbnomics_structure
 		exit _rc
 	}	
 
+	pause
+
 	/* Parse JSON */
 	mata: structure = fetchjson("`jdata'", "");
 	
@@ -316,7 +318,7 @@ program dbnomics_structure
 		mata: pushdata(tablestruct[.,1..3], tokenizer("dimensions_values_labels", "_"));
 		
 		/* Add additional statistics (default) */
-		if ("`stat'" == "") {
+		if ("`stat'" != "") {
 			
 			/* Select facets node */
 			mata: statstruct = structure->getNode("series_dimensions_facets");
@@ -339,7 +341,7 @@ program dbnomics_structure
 					mata: tablesstat = select(tablesstat, tablesstat[., 2] :!= "label");
 					
 					/* Keep relevant cols */
-					mata: pushdata(tablesstat, tokenizer("dimensions_tracker_values_seriesnr_labels", "_"));
+					mata: pushdata(tablesstat, tokenizer("dimensions_tracker_values_seriesnr", "_"));
 					
 					qui save `statdata'
 				restore
@@ -1505,6 +1507,9 @@ mata
 		
 		/* Import JSON data*/
 		jstr = w.getrawcontents(url ,J(0,0,""));
+		
+		/* Remove strange JSON entry that screws up the libjson parse command */
+		jstr = subinstr(jstr, `""dimensions":{},"',"");	
 		
 		/*Parse contents*/
 		node = w.parse(jstr);
