@@ -214,5 +214,5 @@ Type {cmd:{stata "char li _dta[]":char li _dta[]}} after {cmd:dbnomics} to obtai
 {pstd}
 	Simone Signore{break}
 	signoresimone at yahoo [dot] it {p_end}
-	https://dreameater89.github.io/dbnomics/
+	https://dbnomics-stata.github.io/dbnomics/
 
