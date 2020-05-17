@@ -39,7 +39,7 @@ program dbnomics, rclass
 	syntax [anything(name=subcall id="subcall list")], [CLEAR *]
 
 	/* Setup API endpoint */
-	local apipath = "https://api.db.nomics.world" /* https://api.db.nomics.world/api/v1/json */
+	local apipath = "https://api.db.nomics.world/v21" /* https://api.db.nomics.world/api/v1/json */
 	
 	/* Parse subcall*/
 	if inlist(`"`subcall'"',"provider","providers") {
