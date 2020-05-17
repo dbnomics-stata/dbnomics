@@ -9,7 +9,7 @@ dbnomics provides an interface to DB.nomics' RESTful API (https://api.db.nomics.
 
 ## Installation
 
-`net install dbnomics, from("https://dreameater89.github.io/dbnomics")`
+`net install dbnomics, from("https://dbnomics-stata.github.io/dbnomics")`
 
 ## Syntax
 
@@ -92,11 +92,11 @@ Price deflator gross fixed capital formation: other investment
 86 series found. Order of dimensions: (freq.unit.geo)
 
 . // List all series in AMECO/PIGOT containing deflators in national currency:
-. dbnomics series, provider(AMECO) dataset(PIGOT) unit(national-currency-2010-100) clear
+. dbnomics series, provider(AMECO) dataset(PIGOT) unit(national-currency-2015-100) clear
 40 of 86 series selected. Order of dimensions: (freq.unit.geo)
 
 . // Import all series in AMECO/PIGOT containing deflators in national currency:
-. dbnomics import, provider(AMECO) dataset(PIGOT) unit(national-currency-2010-100) clear
+. dbnomics import, provider(AMECO) dataset(PIGOT) unit(national-currency-2015-100) clear
 ........................................
 40 series found and imported
 
