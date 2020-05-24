@@ -249,6 +249,12 @@ program dbnomics_tree
 	quietly {
 		cleanutf8
 		auto_labels _all
+		capture {
+			format `=subinstr("`: format name'","%","%-",1)' name
+			replace name = ustrupper(name) if level == 1
+			replace name = " "*(level-1) + name
+		}
+		
 	}
 	
 	/* Add provider metadata */
@@ -294,8 +300,6 @@ program dbnomics_structure
 		exit _rc
 	}	
 
-	pause
-
 	/* Parse JSON */
 	mata: structure = fetchjson("`jdata'", "");
 	
@@ -325,7 +329,7 @@ program dbnomics_structure
 			
 			/* Series stats matrix */
 			local nofacets 0
-			mata: tablesstat = dict2table(statstruct, dictdim(statstruct)[.,2]);
+			mata: tablesstat = dict2tablev2(statstruct, dictdim(statstruct)[.,2]);
 			
 			/* Capture empty node */
 			mata: st_local("nofacets", strofreal(tablesstat == "0"));
@@ -341,7 +345,7 @@ program dbnomics_structure
 					mata: tablesstat = select(tablesstat, tablesstat[., 2] :!= "label");
 					
 					/* Keep relevant cols */
-					mata: pushdata(tablesstat, tokenizer("dimensions_tracker_values_seriesnr", "_"));
+					mata: pushdata(tablesstat, tokenizer("tracker_dimensions_values_seriesnr", "_"));
 					
 					qui save `statdata'
 				restore
@@ -427,7 +431,7 @@ program dbnomics_series
 	if (`limit' != 300) local override 1
 	
 	/* Setup call*/
-	local apipath = "`path'/`provider'/`dataset'/series?limit=`limit'&offset=`offset'`thequery'"
+	local apipath = "`path'/series/`provider'/`dataset'?facets=true&metadata=true&format=json&limit=`limit'&offset=`offset'`thequery'"
 	
 	/* Save json locally to reduce server load over multiple calls */
 	tempfile jdata
@@ -493,6 +497,7 @@ program dbnomics_series
 			destring _all, replace
 			remove_destrchar _all
 			auto_labels _all
+			capture drop dimensions
 		}
 	}
 	
@@ -591,7 +596,7 @@ program dbnomics_import
 		local apipath = "`path'/series?`thequery'"		/* API 0.21.5 forbids limit and offset */
 	}
 	else {
-		local apipath = "`path'/series?provider_code=`provider'&dataset_code=`dataset'&limit=`limit'&offset=`offset'`thequery'"	
+		local apipath = "`path'/series/`provider'/`dataset'?facets=true&metadata=true&format=json&limit=`limit'&offset=`offset'`thequery'&observations=true"		
 	}
 	
 	/* ma li _apipath */
@@ -635,7 +640,7 @@ program dbnomics_import
 	}
 	else {
 		/* Data is the array containing matching series */
-		mata: srsdata = seriesinfo->getNode("data");
+		mata: srsdata = seriesinfo->getNode("docs");
 		
 		tempfile theseries
 		
@@ -1458,7 +1463,73 @@ mata
 		return(output);
 	}
 
+	/* Parse dict of dicts with complex structure. Assumption: at most x nested level */
+	string matrix dict2tablev2(pointer (class libjson scalar) scalar node, real scalar depth) {
 
+		string matrix output
+		string matrix content
+		string matrix yield
+		string matrix isempty
+		string rowvector selector
+		pointer (class libjson scalar) scalar cell
+		real scalar kk
+		
+		/* Capture empty node */
+		isempty = node->flattenToKV();
+		if (rows(isempty) == 0) {
+			return("0");
+		}
+		if (node==NULL) {
+			return("0");
+		}
+		
+		/* Parse nr. of kkeys */
+		selector = node->listAttributeNames(0);
+			
+		/*Initialise output*/
+		output = J(0, depth, "");
+			
+		for (kk=1; kk<=cols(selector); kk++) {
+			
+			cell = node->getAttribute(selector[kk]);
+			
+			if (cell==NULL) {
+				return(0);
+				exit();
+			} else if (cell->isObject()) {
+				if (depth <= 2) {
+					content = cell->flattenToKV();
+				} else {
+					content = dict2table(cell, depth - 1);
+				}
+				if (cols(content) < cols(output)) {
+					yield = (J(rows(content), 1, selector[kk]), content, J(rows(content), cols(output) - cols(content) - 1, ""));
+				} else {
+					yield = content;
+				}
+				output = output \ yield;
+			} else if (cell->isString()) {
+				output = output \ (selector[kk], cell->getString("",""), J(1, cols(output) - 2, ""));
+			} else if (cell->isArray()) {
+				if (cell->bracketArrayScalarValues() == "[]") {
+					content = json2table(cell)
+					content = (J(rows(content),1,selector[kk]), content)
+					if (cols(content) < cols(output)) {
+						yield = (strofreal(range(1, rows(content), 1)), content, J(rows(content), cols(output) - (cols(content) + 1), ""));
+					} else {
+						yield = content;
+					}
+					output = output \ yield;
+				} else {
+					output = output \ (selector[kk], cell->bracketArrayScalarValues(), J(1, cols(output) - 2, ""));
+				}
+			} 
+			
+			/* Skip cell if none of the above */
+			/* else {				return(0);				exit();			} */
+		}
+		return(output);
+	}
 
 	string matrix parsetree(pointer (class libjson scalar) scalar node, string rowvector dictkeys) {
 		
