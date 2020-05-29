@@ -16,11 +16,14 @@ program dbnomics, rclass
 		19oct2018  v1.1.0 Added news API and smart listing (0.21.6)
 		21oct2018  v1.1.1 Improved parsing engine, added search endpoint (ver 0.21.6)
 		30oct2018  v1.1.2 Fixed bug in dbnomics news
-		17may2020  v1.2.0 Updated to API ver 0.22.0
+		17may2020  v1.2.0 Updated to API ver 0.22.0.1
 	*/
 	
 	/*TODO:
-		Any other subcommand that could use dbnomics_list?
+		Add insecure option for http API call
+		Re-activate dbnomics use for quick CSV import
+		Add new metadata info to payloads
+		Evaluate whether to add new options to account for new API parameters
 	*/
 
 	/* Housekeeping: taken from insheetjson */
@@ -40,7 +43,7 @@ program dbnomics, rclass
 	syntax [anything(name=subcall id="subcall list")], [CLEAR *]
 
 	/* Setup API endpoint */
-	local apipath = "https://api.db.nomics.world/v22" /* https://api.db.nomics.world/api/v1/json */
+	local apipath = "https://api.db.nomics.world/v22"
 	
 	/* Parse subcall*/
 	if inlist(`"`subcall'"',"provider","providers") {
@@ -488,8 +491,6 @@ program dbnomics_series
 		display as smcl "{err:Warning: no series found.}"
 	}
 	else {
-		/* Reduce space (this can be automated in the future)*/
-		qui compress		
 
 		/* Housekeeping */
 		quietly {
@@ -497,8 +498,10 @@ program dbnomics_series
 			destring _all, replace
 			remove_destrchar _all
 			auto_labels _all
-			capture drop dimensions
 		}
+		
+		/* Reduce space (this can be automated in the future)*/
+		qui compress
 	}
 	
 	/* Add provider metadata */
@@ -593,10 +596,10 @@ program dbnomics_import
 	/* Setup call*/
 	if (`"`seriesids'"' != "") {
 		/* local apipath = "`path'/series?`thequery'&limit=`limit'&offset=`offset'" */
-		local apipath = "`path'/series?`thequery'"		/* API 0.21.5 forbids limit and offset */
+		local apipath = "`path'/series?`thequery'&facets=false&metadata=false&observations=true"		/* API 0.21.5 forbids limit and offset */
 	}
 	else {
-		local apipath = "`path'/series/`provider'/`dataset'?facets=true&metadata=true&format=json&limit=`limit'&offset=`offset'`thequery'&observations=true"		
+		local apipath = "`path'/series/`provider'/`dataset'?facets=false&metadata=false&format=json&limit=`limit'&offset=`offset'`thequery'&observations=true"		
 	}
 	
 	/* ma li _apipath */
@@ -1727,6 +1730,11 @@ mata
 					if (cell->isString()) res[r,c] = cell->getString("","");
 					/* Case 2: cell contains array. Return list containing array values */
 					else if (cell->isArray()) res[r,c] = cell->bracketArrayScalarValues();
+					/* Case 3: cell is object. Return flattened json */
+					else if (cell->isObject()) {
+						if (substr(strtrim(cell->toString()), 1, 1) == "{") res[r,c] = substr(strtrim(cell->toString()),2,.)
+						else res[r,c] = strtrim(cell->toString())
+					}
 				}
 				
 				/* If cell is not found leave res with blank */
