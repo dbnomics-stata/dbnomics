@@ -16,14 +16,16 @@ program dbnomics, rclass
 		19oct2018  v1.1.0 Added news API and smart listing (0.21.6)
 		21oct2018  v1.1.1 Improved parsing engine, added search endpoint (ver 0.21.6)
 		30oct2018  v1.1.2 Fixed bug in dbnomics news
-		17may2020  v1.2.0 Updated to API ver 0.22.0.1
+		17may2020  v1.2.0 Updated to API ver 0.22.0.1, added insecure request
 	*/
 	
 	/*TODO:
-		Add insecure option for http API call
-		Re-activate dbnomics use for quick CSV import
-		Add new metadata info to payloads
-		Evaluate whether to add new options to account for new API parameters
+		Add insecure option for http API call  [x]
+		Add new metadata info to payloads [x] --- decided args are not worthy to include
+		Evaluate whether to add new align_period and complete_missing_periods options to account for new API parameters [x] --- decided against that, best to keep the payload as small as possible
+		Hard limit is now 1000. Fix related subroutines [x]
+		Add nois _dots to import subroutine ][x]
+		Re-activate dbnomics use for quick CSV import []
 	*/
 
 	/* Housekeeping: taken from insheetjson */
@@ -40,10 +42,13 @@ program dbnomics, rclass
 		exit 111
 	}
 
-	syntax [anything(name=subcall id="subcall list")], [CLEAR *]
+	syntax [anything(name=subcall id="subcall list")], [CLEAR INSECURE *]
 
 	/* Setup API endpoint */
-	local apipath = "https://api.db.nomics.world/v22"
+	local apipath = cond("`insecure'" != "", "http", "https") + "://api.db.nomics.world/v22"
+	
+	/* Declare API call hard limit */
+	global S_dbnomics_hard_limit = 1000
 	
 	/* Parse subcall*/
 	if inlist(`"`subcall'"',"provider","providers") {
@@ -66,7 +71,7 @@ program dbnomics, rclass
 		timer clear 1 */
 	}
 	else if `"`subcall'"' == "news" {
-		dbnomics_news `apipath', `clear' `macval(options)'
+		dbnomics_news `apipath', `clear' `macval(options)' `insecure'
 	}
 	else if (substr(`"`subcall'"',1,4) == "use ") {
 		di as err "Sorry, the {err:{bf:dbnomics use}} API is deprecated. Use {cmd:dbnomics import, seriesids(...)} instead."
@@ -76,7 +81,7 @@ program dbnomics, rclass
 	}
 	else if (substr(`"`subcall'"',1,5) == "find ") {
 		tokenize `"`subcall'"'
-		dbnomics_query `2', `clear' `macval(options)' path(`apipath')
+		dbnomics_query `2', `clear' `macval(options)' path(`apipath') `insecure'
 	}	
 	else {
 		di as err "dbnomics: unknown subcommand "`""`subcall'""'"" 
@@ -404,13 +409,16 @@ end
 /*4. Series */
 program dbnomics_series
 	
-	syntax anything(name=path), PRovider(string) Dataset(string) [LIMIT(integer 300) OFFSET(integer 0) CLEAR *]  /*SDMX(string asis)*/
+	syntax anything(name=path), PRovider(string) Dataset(string) [LIMIT(numlist integer max=1 <= ${S_dbnomics_hard_limit}) OFFSET(integer 0) SDMX(string asis) CLEAR *]  
+
+	/* Set limit if not provided  */
+	if ("`limit'" == "") local limit = ${S_dbnomics_hard_limit}
 
 	/* smdx and dimensions mutually exclusive */
-	/*if ("`sdmx'" != "" & "`macval(options)'" != "") {
+	if (`"`sdmx'"' != "" & "`macval(options)'" != "") {
 		di as smcl "{err:Options {cmd:sdmx} and {cmd:dimensions} are mutually exclusive.}"
 		exit 4
-	}*/
+	}
 	
 	/* Parse filtering options */
 	_optdict `macval(options)'
@@ -431,10 +439,15 @@ program dbnomics_series
 	
 	/* Capture limit override */
 	local override 0
-	if (`limit' != 300) local override 1
+	if (`limit' != ${S_dbnomics_hard_limit}) local override 1
 	
 	/* Setup call*/
-	local apipath = "`path'/series/`provider'/`dataset'?facets=true&metadata=true&format=json&limit=`limit'&offset=`offset'`thequery'"
+	if (`"`sdmx'"' != "") {
+		local apipath = "`path'/series/`provider'/`dataset'/`sdmx'?facets=true&metadata=true&format=json&limit=`limit'&offset=`offset'&observations=false"
+	}
+	else {
+		local apipath = "`path'/series/`provider'/`dataset'?facets=true&metadata=true&format=json&limit=`limit'&offset=`offset'`thequery'&observations=false"
+	}
 	
 	/* Save json locally to reduce server load over multiple calls */
 	tempfile jdata
@@ -463,7 +476,7 @@ program dbnomics_series
 	/* Tot. series num. */
 	mata: numseries = fetchkeyvals(datainfo, ("nb_series"));
 	mata: st_local("series_count", numseries[1]);
-
+	
 	/* Parse series node */
 	mata: seriesinfo = fetchjson("`jdata'", "series");
 
@@ -472,14 +485,11 @@ program dbnomics_series
 	mata: st_local("num_found", fndseries[1]);
 	
 	if (`limit' < min(`series_count',`num_found')) {
-		if `override' {
+		if ((min(`series_count',`num_found') < ${S_dbnomics_hard_limit}) & (`override')) {
 			display as smcl "{err:Warning: series set not complete. Consider removing the {cmd:limit} option.}"
 		}
 		else {
-			local newlimit = min(`series_count',`num_found')
-			if (`newlimit' > 10000) display as smcl "{err:Warning: Dowload size is significant, so the command may take a while. Consider adding selection criteria or using the {cmd:limit} option.}"
-			dbnomics_series `path', pr(`provider') d(`dataset') limit(`newlimit') offset(`offset') `clear' `macval(options)'
-			exit 0
+			display as smcl "{err:Warning: series set larger than dbnomics maximum provided items.}" _n "{err:Use the {cmd:offset} option to load series beyond the ${S_dbnomics_hard_limit}th one.}"
 		}
 	}
 		
@@ -515,10 +525,10 @@ program dbnomics_series
 	mata: st_lchar("_dta", "dtstructure", structinfo);
 	
 	/* Display result */
-	if (`"`thequery'"' != "") local series_parsed "`num_found' of "
+	if ((`"`thequery'"' != "") | (`"`sdmx'"' != "")) local series_parsed "`num_found' of "
 	
 	display as txt "`series_parsed'`series_count' series selected. Order of dimensions: (`dtstructure')" _c
-	if (`override' & `limit' < min(`series_count',`num_found')) {
+	if (`limit' < min(`series_count',`num_found')) {
 		display as txt ". Only first `limit' retrieved"
 	}
 	else {
@@ -536,7 +546,10 @@ end
 /*5. Import one or more series */
 program dbnomics_import
 
-	syntax anything(name=path), PRovider(string) Dataset(string) [LIMIT(integer 500) OFFSET(integer 0) SDMX(string asis) SERIESids(string asis) CLEAR *]
+	syntax anything(name=path), PRovider(string) Dataset(string) [LIMIT(numlist integer max=1 <=${S_dbnomics_hard_limit}) OFFSET(integer 0) SDMX(string asis) SERIESids(string asis) CLEAR *]
+	
+	/* Set limit if not provided  */
+	if ("`limit'" == "") local limit = ${S_dbnomics_hard_limit}
 	
 	/* smdx and dimensions mutually exclusive */
 	if (`"`sdmx'"' != "" & `"`macval(options)'"' != "") {
@@ -545,7 +558,7 @@ program dbnomics_import
 	}
 	/* seriesids and dimensions mutually exclusive */
 	if (`"`seriesids'"' != "" & `"`macval(options)'"' != "") {
-		di as smcl "{err:Options {cmd:sdmx} and {cmd:dimensions} are mutually exclusive.}"
+		di as smcl "{err:Options {cmd:seriesids} and {cmd:dimensions} are mutually exclusive.}"
 		exit 198
 	}	
 	/* seriesids and sdmx mutually exclusive */
@@ -557,15 +570,6 @@ program dbnomics_import
 	/* Parse filtering options */
 	_optdict `macval(options)'
 	if (`"`dimdict'"' != "") local thequery "&dimensions=`dimdict'"	
-	if (`"`sdmx'"' != "") {
-		/* First check if the provider is compatible with SMDX */
-		_sdmx_check `provider'
-		if (`sdmx_compatible' == 0) {
-			di as smcl "{err:Provider `provider' does not support {cmd:sdmx} masks. Use {it:dimensions_opt} instead.}"
-			exit 198
-		}
-		local thequery "&series_code_mask=`sdmx'"
-	}
 
 	/* Parse list of series (must be comma separated)*/
 	if (`"`seriesids'"' != "") {
@@ -591,12 +595,15 @@ program dbnomics_import
 	
 	/* Capture limit override */
 	local override 0
-	if (`limit' != 500) local override 1
+	if (`limit' != ${S_dbnomics_hard_limit}) local override 1
 	
 	/* Setup call*/
 	if (`"`seriesids'"' != "") {
 		/* local apipath = "`path'/series?`thequery'&limit=`limit'&offset=`offset'" */
 		local apipath = "`path'/series?`thequery'&facets=false&metadata=false&observations=true"		/* API 0.21.5 forbids limit and offset */
+	}
+	else if (`"`sdmx'"' != "") {
+		local apipath = "`path'/series/`provider'/`dataset'/`sdmx'?facets=false&metadata=false&format=json&limit=`limit'&offset=`offset'&observations=true"
 	}
 	else {
 		local apipath = "`path'/series/`provider'/`dataset'?facets=false&metadata=false&format=json&limit=`limit'&offset=`offset'`thequery'&observations=true"		
@@ -650,10 +657,14 @@ program dbnomics_import
 		nobreak {
 			quietly {
 				
+				
 				local appendlist
+				local loopsize = min(`limit',`series_found')
+				
+				nois di as smcl "{txt}Processing `loopsize' series"
 				
 				/* Note: this may fail for huge list of series if the c(macrolen) is hit */
-				forval jj = 1/`=min(`limit',`series_found')' {
+				forval jj = 1/`loopsize' {
 					
 					tempfile dbseries`jj'
 					if (`jj' > 1) local appendlist "`appendlist' "`dbseries`jj''""
@@ -664,12 +675,13 @@ program dbnomics_import
 						capture mata: seriesformat(srsdata, `jj');
 						save `dbseries`jj''
 					
-						if (`jj' == `series_found') {
+						/*if (`jj' == `series_found') {
 							noi di "."
 						}
 						else {
 							noi di "." _c
-						}
+						}*/
+						nois _dots `jj' 0
 					
 				}
 				
@@ -702,7 +714,7 @@ program dbnomics_import
 	mata: datafeat = fetchkeyvals(datainfo, metadata);
 	mata: for (kk=1; kk<=cols(metadata); kk++) st_lchar("_dta", metadata[kk], datafeat[kk]);	
 	
-	display as txt "`series_found' series found and imported"
+	display as smcl "{res}`series_found' series found and `=min(`limit',`series_found')' loaded"
 	
 	/* Add metadata as dataset data characteristic */
 	char _dta[provider] "`provider'"
@@ -713,7 +725,7 @@ program dbnomics_import
 end
 
 
-/*6. Use single series (DEPRECATED) */
+/*6. Use single series */
 program dbnomics_use
 
 	syntax anything(name=series), PRovider(string) Dataset(string) PATH(string asis) [CLEAR DELIMiter(string)]
@@ -773,7 +785,10 @@ end
 /*7. Last updates */
 program dbnomics_news
 	
-	syntax anything(name=path), [CLEAR LIMIT(integer 20) ALLnews]
+	syntax anything(name=path), [CLEAR LIMIT(numlist integer max=1 <=100) ALLnews INSECURE]
+	
+	/* Set limit if not provided  */
+	if ("`limit'" == "") local limit = 20
 	
 	/* Setup call*/
 	local apipath = "`path'/last-updates"
@@ -806,6 +821,7 @@ program dbnomics_news
 	/* Parse JSON */
 	mata: thenews = fetchjson("`jdata'", "");
 	mata: datanode = thenews->getNode("datasets");
+	mata: datadocs = datanode->getNode("docs");
 	
 	/* Check for error in response */
 	mata: parseresperr(thenews);
@@ -814,7 +830,7 @@ program dbnomics_news
 	mata: st_local("nomicsmeta", parsemeta(thenews));
 	
 	/* Call mata function */
-	mata: pushdata(json2table(datanode), jsoncolsArray(datanode, 0)');
+	mata: pushdata(json2table(datadocs), jsoncolsArray(datadocs, 0)');
 	
 	/* Reduce space (this can be automated in the future)*/
 	qui compress	
@@ -855,7 +871,7 @@ program dbnomics_news
 	
 	/* Display results */
 	if ("`allnews'" != "") local allnews showall
-	dbnomics_list `ordlist', target(code) pr(provider_code) subcall(structure) apipath("`path'") show(`limit') `allnews'
+	dbnomics_list `ordlist', target(code) pr(provider_code) subcall(structure) apipath("`path'") show(`limit') `allnews' `insecure'
 	
 	/* Add metadata as dataset data characteristic */
 	char _dta[endpoint] "`apipath'"
@@ -866,7 +882,10 @@ end
 /*8. Search data and series */
 program dbnomics_query, rclass
 	
-	syntax anything(name=query), [CLEAR PATH(string asis) LIMIT(integer 20) OFFSET(integer 0) ALLresults]
+	syntax anything(name=query), [CLEAR PATH(string asis) LIMIT(numlist integer max=1 <=100) OFFSET(integer 0) ALLresults INSECURE]
+	
+	/* Set limit if not provided  */
+	if ("`limit'" == "") local limit = 10
 	
 	/* Parse clear option*/
 	if ("`clear'" == "") {
@@ -983,8 +1002,9 @@ program dbnomics_query, rclass
 		
 		/* Display results */
 		tempvar subcallvar
-		gen `subcallvar' = cond(type == "dataset", "structure", "import")
-		dbnomics_list `displaylist', target(code) pr(provider_code) subcall(`subcallvar') apipath("`path'") showall varsubcall
+		/* In the v22 API, server only responds datasets */
+		gen `subcallvar' = "structure"
+		dbnomics_list `displaylist', target(code) pr(provider_code) subcall(`subcallvar') apipath("`path'") showall varsubcall `insecure'
 		
 	}
 	else {
@@ -1008,7 +1028,7 @@ end
 capture program drop dbnomics_list
 program dbnomics_list, rclass
 
-	syntax varlist(min=2), Target(varname) SUBCALL(string) APIPATH(string) [SHOWnum(integer 20) PRoviderlist(varname) Datasetlist(varname) SHOWall VARSUBCALL]
+	syntax varlist(min=2), Target(varname) SUBCALL(string) APIPATH(string) [SHOWnum(integer 20) PRoviderlist(varname) Datasetlist(varname) SHOWall VARSUBCALL INSECURE]
 	
 	/* Allocate screen space */
 	local cc = 1
@@ -1059,10 +1079,10 @@ program dbnomics_list, rclass
 				if ("`var'" == "`target'") {
 					/* Build command */
 					if ("`subcall_loop'" == "structure") {
-						local ocomm "dbnomics data, pr(`=`providerlist'[`ii']') d(`=`target'[`ii']') clear"
+						local ocomm "dbnomics data, pr(`=`providerlist'[`ii']') d(`=`target'[`ii']') clear `insecure'"
 					}
 					else if ("`subcall_loop'" == "import") {
-						local ocomm "dbnomics import, pr(`=`providerlist'[`ii']') d(`=`datasetlist'[`ii']') series(`=`target'[`ii']') clear"
+						local ocomm "dbnomics import, pr(`=`providerlist'[`ii']') d(`=`datasetlist'[`ii']') series(`=`target'[`ii']') clear `insecure'"
 					}
 					
 					
@@ -1190,31 +1210,31 @@ program auto_labels
 	
 end
 
-/* Check SDMX compatibility */
-program _sdmx_check
+/* DEPRECATED: Check SDMX compatibility. As of API v22, all providers seem to accept an SDMX mask, when the data structure allows */
+* program _sdmx_check
 	
-	args prtocheck
+	* args prtocheck
 	
-	quietly {
-		/* Try to get up-to-date list from the web */
-		capture nobreak {
-			preserve
-				import delimited settings config using "https://git.nomics.world/dbnomics/dbnomics-api/raw/master/dbnomics_api/application.cfg", delim("=") clear
-				keep if trim(itrim(settings)) == "SERIES_CODE_MASK_COMPATIBLE_PROVIDERS"
-				replace config = subinstr(subinstr(subinstr(subinstr(config,",","",.), "}","",.), "{","",.),`"""',"",.)			/*"'*/
-				local checklist = config[1]
-			restore
-		}
-		if _rc {
-			local checklist "BIS ECB Eurostat FED IMF IMF-WEO INSEE OECD WTO"
-		}
-		local thetest : list prtocheck & checklist	
-	}
+	* quietly {
+		* /* Try to get up-to-date list from the web */
+		* capture nobreak {
+			* preserve
+				* import delimited settings config using "https://git.nomics.world/dbnomics/dbnomics-api/raw/master/dbnomics_api/application.cfg", delim("=") clear
+				* keep if trim(itrim(settings)) == "SERIES_CODE_MASK_COMPATIBLE_PROVIDERS"
+				* replace config = subinstr(subinstr(subinstr(subinstr(config,",","",.), "}","",.), "{","",.),`"""',"",.)			/*"'*/
+				* local checklist = config[1]
+			* restore
+		* }
+		* if _rc {
+			* local checklist "BIS ECB Eurostat FED IMF IMF-WEO INSEE OECD WTO"
+		* }
+		* local thetest : list prtocheck & checklist	
+	* }
 	
-	/* Return test results */	
-	c_local sdmx_compatible = (`"`thetest'"' != "")
+	* /* Return test results */	
+	* c_local sdmx_compatible = (`"`thetest'"' != "")
 			
-end
+* end
 
 /* Compile dimensions dict based on macval(options) */
 capture program drop _optdict
@@ -1350,7 +1370,7 @@ mata
 		/* Two strategies:*/
 		/* 1) List in dimensions_codes_order is available */
 		templ = node->getNode("dimensions_codes_order");
-		if (templ!=NULL) {
+		if ((templ!=NULL) && (templ->arrayLength() > 0)) {
 			return(parsearray(templ, 1));
 		} else {
 		/* 2) Get list of attribute names */
@@ -1604,7 +1624,7 @@ mata
 		pointer (class libjson scalar) scalar provnode
 		
 		/* Extract important node */
-		provnode = node->getNode("error_description");
+		provnode = node->getNode("message");
 		
 		/* Extract error message */
 		if (provnode==NULL) {
