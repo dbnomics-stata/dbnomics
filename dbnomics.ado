@@ -5,7 +5,8 @@ capture program drop dbnomics
 /* Main wrapper command */
 program dbnomics, rclass
 	
-	/* May need adjustment because of https*/
+	/* Version 14.0 used to be necessary because only http secure calls were possible. 
+	Now that http is available, I guess 14.0 is still safe because of unicode */
 	version 14.0			
 	
 	/* Changelog
@@ -23,9 +24,11 @@ program dbnomics, rclass
 		Add insecure option for http API call  [x]
 		Add new metadata info to payloads [x] --- decided args are not worthy to include
 		Evaluate whether to add new align_period and complete_missing_periods options to account for new API parameters [x] --- decided against that, best to keep the payload as small as possible
-		Hard limit is now 1000. Fix related subroutines [x]
+		An HTTP error is now thrown by the server when the hard limit of 1000 is reached. Fix related subroutines [x]
 		Add nois _dots to import subroutine ][x]
-		Re-activate dbnomics use for quick CSV import []
+		Re-activate dbnomics use for quicker CSV import of single series [x]
+		Stata can't copy internet files when the server throws an HTTP  error. There's no way to parse error messages then []
+		DEBUG dbnomics import, pr(Eurostat) d(urb_ctran) FREQ(A) indic_ur(TT1057V) clear
 	*/
 
 	/* Housekeeping: taken from insheetjson */
@@ -74,10 +77,10 @@ program dbnomics, rclass
 		dbnomics_news `apipath', `clear' `macval(options)' `insecure'
 	}
 	else if (substr(`"`subcall'"',1,4) == "use ") {
-		di as err "Sorry, the {err:{bf:dbnomics use}} API is deprecated. Use {cmd:dbnomics import, seriesids(...)} instead."
-		exit 198
-		/* tokenize `macval(subcall)'
-		dbnomics_use `2', `clear' `macval(options)' path(`apipath') */
+		tokenize `macval(subcall)'
+		dbnomics_use `2', `clear' path(`apipath') `macval(options)' delim(",")
+		/* di as err "Sorry, the {err:{bf:dbnomics use}} API is deprecated. Use {cmd:dbnomics import, seriesids(...)} instead."
+		exit 198 */
 	}
 	else if (substr(`"`subcall'"',1,5) == "find ") {
 		tokenize `"`subcall'"'
@@ -92,7 +95,7 @@ program dbnomics, rclass
 	return local endpoint "`subcall'"
 	
 	/* Housekeeping */
-	/* mata: mata clear	 */
+	/* Done at the subroutine level */
 
 end
 
@@ -116,7 +119,7 @@ program dbnomics_providers
 		clear
 	}
 	
-	display as txt "Downloading list of providers..."
+	display as txt "Fetching providers list"
 	
 	/* Save json locally to reduce server load over multiple calls */
 	tempfile jdata
@@ -157,7 +160,7 @@ program dbnomics_providers
 	
 		/* Parse dates */
 		unab varlist : _all
-		local dbdates "converted_at indexed_at"
+		local dbdates "converted_at indexed_at created_at"
 		local dbdates : list dbdates & varlist
 	
 		local iter 0
@@ -182,6 +185,11 @@ program dbnomics_providers
 	/* Add metadata as dataset data characteristic */
 	char _dta[endpoint] "`apipath'"
 	char _dta[_meta] "`nomicsmeta'"
+
+	di as text `"(`=_N' `=plural(_N, "provider")' read)"'
+	
+	/* Housekeeping */
+	capture mata : mata drop providers provobj provnode
 	
 end
 
@@ -216,7 +224,7 @@ program dbnomics_tree
 		exit _rc
 	}	
 	else {
-		display as txt "Downloading category tree for `provider'..."
+		display as txt "Fetching category tree for `provider'"
 	}	
 
 	/* Parse JSON */
@@ -275,6 +283,9 @@ program dbnomics_tree
 	char _dta[endpoint] "`apipath'"	
 	char _dta[_meta] "`nomicsmeta'"
 	
+	/* Housekeeping */
+	capture mata : mata drop tree metadata providermeta kk
+	
 end
 
 /*3) Datastructure */
@@ -330,7 +341,7 @@ program dbnomics_structure
 		mata: pushdata(tablestruct[.,1..3], tokenizer("dimensions_values_labels", "_"));
 		
 		/* Add additional statistics (default) */
-		if ("`stat'" != "") {
+		if ("`stat'" == "") {
 			
 			/* Select facets node */
 			mata: statstruct = structure->getNode("series_dimensions_facets");
@@ -353,7 +364,7 @@ program dbnomics_structure
 					mata: tablesstat = select(tablesstat, tablesstat[., 2] :!= "label");
 					
 					/* Keep relevant cols */
-					mata: pushdata(tablesstat, tokenizer("tracker_dimensions_values_seriesnr", "_"));
+					mata: pushdata(tablesstat, tokenizer("tracker_dimensions_values_seriescount", "_"));
 					
 					qui save `statdata'
 				restore
@@ -362,7 +373,9 @@ program dbnomics_structure
 				capture drop tracker
 			
 			}
-			
+
+			/* Mata housekeeping */
+			mata : mata drop statstruct tablesstat			
 		}
 		
 		/* Reduce space (this can be automated in the future)*/
@@ -379,6 +392,9 @@ program dbnomics_structure
 			remove_destrchar _all
 			auto_labels _all
 		}
+		
+		/* Mata housekeeping */
+		mata : mata drop tablestruct
 	}
 	else {
 		di as smcl "{err:Warning. Dataset structure not found for {cmd:`dataset'}}"
@@ -404,6 +420,9 @@ program dbnomics_structure
 	char _dta[endpoint] "`apipath'"
 	char _dta[_meta] "`nomicsmeta'"
 	
+	/* Housekeeping */
+	capture mata : mata drop structure datainfo datastruct metadata datafeat kk structinfo
+	
 end
 
 /*4. Series */
@@ -424,7 +443,7 @@ program dbnomics_series
 	_optdict `macval(options)'
 	if (`"`dimdict'"' != "") local thequery "&dimensions=`dimdict'"	
 	
-	/* if (`"`sdmx'"' != "") local thequery "&sdmx_filter=`sdmx'" */
+	if (`"`sdmx'"' != "") mata: st_local("thequery", urlencode(`"`sdmx'"'))
 	
 	/* Parse clear option*/
 	if ("`clear'" == "") {
@@ -443,15 +462,15 @@ program dbnomics_series
 	
 	/* Setup call*/
 	if (`"`sdmx'"' != "") {
-		local apipath = "`path'/series/`provider'/`dataset'/`sdmx'?facets=true&metadata=true&format=json&limit=`limit'&offset=`offset'&observations=false"
+		local apipath = `"`path'/series/`provider'/`dataset'/`macval(thequery)'?facets=true&metadata=true&format=json&limit=`limit'&offset=`offset'&observations=false"'
 	}
 	else {
-		local apipath = "`path'/series/`provider'/`dataset'?facets=true&metadata=true&format=json&limit=`limit'&offset=`offset'`thequery'&observations=false"
+		local apipath = `"`path'/series/`provider'/`dataset'?facets=true&metadata=true&format=json&limit=`limit'&offset=`offset'`macval(thequery)'&observations=false"'
 	}
 	
 	/* Save json locally to reduce server load over multiple calls */
 	tempfile jdata
-	capture copy "`apipath'" `jdata', replace
+	capture copy `"`macval(apipath)'"' `jdata', replace
 	if (inrange(_rc,630,696) | _rc == 601) {
 		if (_rc == 601) di as smcl "{err:Network error. Please ensure that {cmd:`provider'} and {cmd:`dataset'} are valid DB.nomics endpointts}"
 		exit _rc
@@ -541,6 +560,8 @@ program dbnomics_series
 	char _dta[endpoint] "`apipath'"
 	char _dta[_meta] "`nomicsmeta'"
 	
+	/* Housekeeping */
+	
 end
 
 /*5. Import one or more series */
@@ -570,16 +591,18 @@ program dbnomics_import
 	/* Parse filtering options */
 	_optdict `macval(options)'
 	if (`"`dimdict'"' != "") local thequery "&dimensions=`dimdict'"	
+	
+	if (`"`sdmx'"' != "") mata: st_local("thequery", urlencode(`"`sdmx'"'))
 
 	/* Parse list of series (must be comma separated)*/
 	if (`"`seriesids'"' != "") {
 		local thequery "series_ids="
 		gettoken series oseries : seriesids, parse(",")
 		while ("`series'" != "") {
-			if ("`series'" != ",") local thequery "`thequery'`provider'/`dataset'/`series',"
+			if ("`series'" != ",") local thequery `"`thequery'`provider'/`dataset'/`macval(series)',"'
 			gettoken series oseries : oseries, parse(",")
 		}
-		local thequery = substr(`"`thequery'"', 1, length(`"`thequery'"')-1)
+		local thequery = substr(`"`macval(thequery)'"', 1, length(`"`macval(thequery)'"') - 1)
 	}
 	
 	/* Parse clear option*/
@@ -600,20 +623,20 @@ program dbnomics_import
 	/* Setup call*/
 	if (`"`seriesids'"' != "") {
 		/* local apipath = "`path'/series?`thequery'&limit=`limit'&offset=`offset'" */
-		local apipath = "`path'/series?`thequery'&facets=false&metadata=false&observations=true"		/* API 0.21.5 forbids limit and offset */
+		local apipath = `"`path'/series?`macval(thequery)'&facets=false&metadata=false&observations=true"'
 	}
 	else if (`"`sdmx'"' != "") {
-		local apipath = "`path'/series/`provider'/`dataset'/`sdmx'?facets=false&metadata=false&format=json&limit=`limit'&offset=`offset'&observations=true"
+		local apipath = `"`path'/series/`provider'/`dataset'/`macval(thequery)'?facets=false&metadata=false&format=json&limit=`limit'&offset=`offset'&observations=true"'
 	}
 	else {
-		local apipath = "`path'/series/`provider'/`dataset'?facets=false&metadata=false&format=json&limit=`limit'&offset=`offset'`thequery'&observations=true"		
+		local apipath = `"`path'/series/`provider'/`dataset'?facets=false&metadata=false&format=json&limit=`limit'&offset=`offset'`macval(thequery)'&observations=true"'
 	}
 	
 	/* ma li _apipath */
 	
 	/* Save json locally to reduce server load over multiple calls */
 	tempfile jdata
-	capture copy "`apipath'" `jdata', replace
+	capture copy `"`macval(apipath)'"' `jdata', replace
 	
 	if (_rc == 672 & `"`sdmx'"' != "") {
 		di as smcl "{err:Provider `provider' is not compatible with SDMX filters}"
@@ -714,13 +737,15 @@ program dbnomics_import
 	mata: datafeat = fetchkeyvals(datainfo, metadata);
 	mata: for (kk=1; kk<=cols(metadata); kk++) st_lchar("_dta", metadata[kk], datafeat[kk]);	
 	
-	display as smcl "{res}`series_found' series found and `=min(`limit',`series_found')' loaded"
+	display as smcl _n "{res}`series_found' series found and `=min(`limit',`series_found')' loaded"
 	
 	/* Add metadata as dataset data characteristic */
 	char _dta[provider] "`provider'"
 	char _dta[dataset] "`dataset'"
 	char _dta[endpoint] "`apipath'"
-	char _dta[_meta] "`nomicsmeta'"	
+	char _dta[_meta] "`nomicsmeta'"
+
+	/* Housekeeping */	
 	
 end
 
@@ -728,7 +753,7 @@ end
 /*6. Use single series */
 program dbnomics_use
 
-	syntax anything(name=series), PRovider(string) Dataset(string) PATH(string asis) [CLEAR DELIMiter(string)]
+	syntax anything(name=series), PRovider(string) Dataset(string) PATH(string asis) [CLEAR DELIMiter(passthru)]
 	
 	/* Parse clear option*/
 	if ("`clear'" == "") {
@@ -741,11 +766,11 @@ program dbnomics_use
 		clear
 	}	
 	
-	local apipath = "`path'/`provider'/`dataset'/`series'.csv"
+	local apipath = `"`path'/series/`provider'/`dataset'/`series'?format=csv&complete_missing_periods=false&align_periods=false"'
 	
 	/* Save csv locally to reduce server load in case of multiple calls */
 	tempfile csvdata
-	capture copy "`apipath'" `csvdata', replace	
+	capture copy `"`macval(apipath)'"' `csvdata', replace	
 	if (inrange(_rc,630,696) | _rc == 601) {
 		if (_rc == 601) di as smcl "{err:Network error. Please ensure that {cmd:`provider'}, {cmd:`dataset'} and {cmd:`series'} are valid DB.nomics endpointts}"
 		exit _rc
@@ -753,12 +778,28 @@ program dbnomics_use
 	else if (_rc > 0) {
 		di as err "Kernel panic. Abort"
 		exit _rc
-	}		
+	}
 	
-	if ("`delim'" == "") local delim tab
+	/* Import series name: that's the header of the value column (2nd column) */
+	quietly {
 	
-	import delimited period value using `csvdata', delim(`delim') clear
-	qui gen code = "`series'"
+		tempfile theseries
+		import delimited toss series_name using `csvdata', `delimiter' clear rowrange(1:1) varnames(nonames) encoding(utf-8)
+		local series_name = series_name[1]
+		gen byte dummy = 1
+		save `theseries'
+		
+		/* Import full dataset */
+		import delimited period value using `csvdata', `delimiter' clear encoding(utf-8) rowrange(2)
+		gen code = "`series'"
+		gen byte dummy = 1
+		merge m:1 dummy using `theseries', assert(3) nogen norep	keepusing(series_name)
+		drop dummy
+	
+	}
+	
+	di as text `"`series_name'"'
+	di as text `"(`=_N' `=plural(_N, "observation")' read)"'
 	
 	/* Housekeeping */
 	quietly {
@@ -778,6 +819,7 @@ program dbnomics_use
 	char _dta[provider] "`provider'"
 	char _dta[dataset] "`dataset'"
 	char _dta[series] "`series'"
+	char _dta[series_name] "`series_name'"
 	char _dta[endpoint] "`apipath'"
 	
 end
@@ -876,6 +918,8 @@ program dbnomics_news
 	/* Add metadata as dataset data characteristic */
 	char _dta[endpoint] "`apipath'"
 	char _dta[_meta] "`nomicsmeta'"
+	
+	/* Housekeeping */
 	
 end
 
@@ -1017,6 +1061,8 @@ program dbnomics_query, rclass
 	/* Add metadata as dataset data characteristic */
 	char _dta[endpoint] "`apipath'"
 	char _dta[_meta] "`nomicsmeta'"
+	
+	/* Housekeeping */
 	
 end
 
