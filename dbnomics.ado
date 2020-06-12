@@ -28,7 +28,8 @@ program dbnomics, rclass
 		Add nois _dots to import subroutine ][x]
 		Re-activate dbnomics use for quicker CSV import of single series [x]
 		Stata can't copy internet files when the server throws an HTTP  error. There's no way to parse error messages then []
-		DEBUG dbnomics import, pr(Eurostat) d(urb_ctran) FREQ(A) indic_ur(TT1057V) clear
+		Build ad-hoc parser for observations_attributes list of lists in dbnomics import [x]
+		DEBUG dbnomics series, pr(BIS) d(credit_gap) clear
 	*/
 
 	/* Housekeeping: taken from insheetjson */
@@ -561,6 +562,7 @@ program dbnomics_series
 	char _dta[_meta] "`nomicsmeta'"
 	
 	/* Housekeeping */
+	capture mata : mata drop datafeat datainfo fndseries kk metadata numseries seriesdata seriesinfo structinfo structure
 	
 end
 
@@ -695,15 +697,10 @@ program dbnomics_import
 						drop _all
 						
 						/* Parse series data */
-						capture mata: seriesformat(srsdata, `jj');
+						mata: seriesformat(srsdata, `jj');
 						save `dbseries`jj''
 					
-						/*if (`jj' == `series_found') {
-							noi di "."
-						}
-						else {
-							noi di "." _c
-						}*/
+						/* Progress report */
 						nois _dots `jj' 0
 					
 				}
@@ -745,7 +742,8 @@ program dbnomics_import
 	char _dta[endpoint] "`apipath'"
 	char _dta[_meta] "`nomicsmeta'"
 
-	/* Housekeeping */	
+	/* Housekeeping */
+	capture mata : mata drop datafeat datainfo kk metadata numseries srsdata seriesinfo structure
 	
 end
 
@@ -920,13 +918,14 @@ program dbnomics_news
 	char _dta[_meta] "`nomicsmeta'"
 	
 	/* Housekeeping */
+	capture mata : mata drop thenews datadocs datanode
 	
 end
 
 /*8. Search data and series */
 program dbnomics_query, rclass
 	
-	syntax anything(name=query), [CLEAR PATH(string asis) LIMIT(numlist integer max=1 <=100) OFFSET(integer 0) ALLresults INSECURE]
+	syntax anything(name=query), [CLEAR PATH(string asis) LIMIT(numlist integer max=1 <=100) OFFSET(integer 0) INSECURE]
 	
 	/* Set limit if not provided  */
 	if ("`limit'" == "") local limit = 10
@@ -944,43 +943,28 @@ program dbnomics_query, rclass
 	
 	display as txt "Searching for {bf:`query'} in datasets and series..." _c
 	
-	/* Parse allres option */
-	if ("`allresults'" != "") {
-		local calls 2
-		local limit 1
-	}
-	else {
-		local calls 1
-	}
-	
 	/* Save json locally to reduce server load over multiple calls */
 	tempfile jdata
-	
-	while (`calls--') {
-		
-		/* Setup call*/
-		mata: st_local("queryenc", urlencode(`"`query'"'))
-		local apipath `"`path'/search?q=`queryenc'&limit=`limit'&offset=`offset'"'	
-	
-		capture copy "`apipath'" `jdata', replace
-		if (inrange(_rc,630,696) | _rc == 601) {
-			if (_rc == 601) di as err "Network error. Invalid API endpoint."
-			exit _rc
-		}
-		else if (_rc > 0) {
-			di as err "Kernel panic. Abort"
-			exit _rc
-		}
-	
-		/* Parse number of results */
-		mata: qresult = fetchjson("`jdata'", "results");
-		mata: numseries = fetchkeyvals(qresult, ("num_found"));
-		mata: st_local("results_found", numseries[1]);	
-		
-		if ("`allresults'" != "") local limit = `results_found'
-		
+
+	/* Setup call*/
+	mata: st_local("queryenc", urlencode(`"`query'"'))
+	local apipath `"`path'/search?q=`queryenc'&limit=`limit'&offset=`offset'"'	
+
+	capture copy "`apipath'" `jdata', replace
+	if (inrange(_rc,630,696) | _rc == 601) {
+		if (_rc == 601) di as err "Network error. Invalid API endpoint."
+		exit _rc
 	}
-	
+	else if (_rc > 0) {
+		di as err "Kernel panic. Abort"
+		exit _rc
+	}
+
+	/* Parse number of results */
+	mata: qresult = fetchjson("`jdata'", "results");
+	mata: numseries = fetchkeyvals(qresult, ("num_found"));
+	mata: st_local("results_found", numseries[1]);	
+		
 	/* Parse JSON */
 	mata: qmain = fetchjson("`jdata'", "");
 	
@@ -1041,14 +1025,17 @@ program dbnomics_query, rclass
 			local displaylist : list displaylist & varlist
 		}
 	
-		if (`limit' < `results_found') local extramsg " (`limit' shown)"
+		if (`limit' < `results_found') local extramsg " (first `=min(`limit',25)' shown)"
 		display as txt "`results_found' `=plural(`results_found', "result")' found`extramsg'." _n
 		
 		/* Display results */
 		tempvar subcallvar
 		/* In the v22 API, server only responds datasets */
 		gen `subcallvar' = "structure"
-		dbnomics_list `displaylist', target(code) pr(provider_code) subcall(`subcallvar') apipath("`path'") showall varsubcall `insecure'
+		/* Stata crashes with more than 25 results, set maximum display length to 25 */
+		dbnomics_list `displaylist', target(code) pr(provider_code) subcall(`subcallvar') apipath("`path'") shownum(25) varsubcall `insecure'
+		
+		capture mata : mata drop resnode
 		
 	}
 	else {
@@ -1063,6 +1050,7 @@ program dbnomics_query, rclass
 	char _dta[_meta] "`nomicsmeta'"
 	
 	/* Housekeeping */
+	capture mata : mata drop qresult numseries qmain
 	
 end
 
@@ -1223,6 +1211,7 @@ program cleanutf8
 			qui replace `v' = subinstr(`v',"\n","",.)
 			qui replace `v' = subinstr(`v',`"\""',`"""',.)
 			qui replace `v' = subinstr(`v',"\/","/",.)
+			qui replace `v' = "" if `v' == `""""'
 		}
 	}
 
@@ -1358,11 +1347,14 @@ mata
 
 		pointer (class libjson scalar) scalar series
 		pointer (class libjson scalar) scalar cell
+		real scalar itk
 		string matrix thedata
 		string matrix oinfo
 		string matrix oinfo_p
 		string matrix odata
 		string matrix output
+		string matrix ainfo
+		string matrix adata
 		
 		/* Loop through series */
 		series = data->getArrayValue(cursor);
@@ -1376,7 +1368,7 @@ mata
 		scollector = J(1,0,"");
 		
 		/* Series data (period-value) */
-			/* printf("made it here \n") */
+		/* printf("made it here \n") */
 		for (kk=1; kk<=cols(selector); kk++) {
 			cell = series->getAttribute(selector[kk]);
 			if ((cell->isArray()) && (cell->bracketArrayScalarValues() != "[]")) {
@@ -1389,25 +1381,95 @@ mata
 			}
 		}
 				
-		/* Other info */
-		oinfo = dict2table(series, dictdim(series)[.,2] - 1);
+		/* Parse Other series info */
+		oinfo = dict2tablev2(series, 2);
 		
 		/* Filter out stuff that's already been parsed */
 		for (kk=1; kk<=cols(scollector); kk++) {
 			oinfo = select(oinfo, oinfo[.,1]:!=scollector[kk]);
 		}
+		
+		/* Ad-hoc parser for list of lists with observation attributes */
+		if (series->getAttribute("observations_attributes") != NULL) {
+			
+			oinfo = select(oinfo, oinfo[.,1]:!="observations_attributes");
+			
+			/* Get obs attributes data */
+			oadata = parseattributeslol(series->getAttribute("observations_attributes"), rows(thedata));
+			
+			/* Split header from content */
+			oainfo = oadata[1,.];
+			oadata = oadata[2..rows(oadata),.];
+			
+		}
+		else {
+			oainfo = J(1,0,"");
+			oadata = J(rows(thedata),0,"");
+		}		
+		
+		/* Transpose oinfo */
 		oinfo_p = oinfo';
-
+		
 		/* Adjust other info */
 		odata = J(rows(thedata), 1, oinfo_p[2,.]);
-
+		
 		/*Combine dataset*/
-		output = thedata, odata;
+		output = thedata, oadata, odata;
 
 		/* Export data */
-		pushdata(output, (scollector, oinfo_p[1,.]));
+		pushdata(output, (scollector, oainfo, oinfo_p[1,.]));
 
 	}
+	
+	/* NEW: ad-hoc function to parse observation_attributes list-of-lists */
+	string matrix parseattributeslol(pointer (class libjson scalar) scalar node, real scalar rowfit) {
+	
+		pointer (class libjson scalar) scalar sublist
+		real scalar alen
+		real scalar kk
+		string matrix collector
+		string matrix oadata
+		string matrix oheader
+		
+		/* Initialise collector given rowfit */
+		collector = J(rowfit+1,0,"");
+		
+		if (node->isArray() == 0) {
+			return(J(0,0,""))
+		}
+		else {
+			/* Get list size */
+			alen = node->arrayLength();
+			
+			/* Loop through list of lists */
+			for (kk=1; kk<=alen; kk++) {
+				
+				/* Get sub-list */
+				sublist = node->getArrayValue(kk);
+				
+				/* The format of these sublists is: "HEADER", ["content"] */
+				oheader = J(1,1, sublist->getArrayValue(1)->getString("",""))
+				
+				/* If the content is a string scalar, the payload provides a string, not a list */
+				if (sublist->getArrayValue(2)->isArray() == 1) {
+					oadata = parsearray(sublist->getArrayValue(2), 0);
+				}
+				else if (sublist->getArrayValue(2)->isString() == 1) {
+					oadata = J(1,rowfit,sublist->getArrayValue(2)->getString("",""));
+				}
+				else {
+					oadata = J(1,rowfit,"");
+				}				
+				
+				/* Piece things together and update collector */
+				collector = (collector, (oheader, oadata)')
+				
+			}
+		
+			/* Return output */
+			return(collector);
+		}
+	}	
 
 	string scalar parsestructure(pointer (class libjson scalar) scalar node) {
 	
