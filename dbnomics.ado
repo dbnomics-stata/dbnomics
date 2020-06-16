@@ -6,7 +6,8 @@ capture program drop dbnomics
 program dbnomics, rclass
 	
 	/* Version 14.0 used to be necessary because only http secure calls were possible. 
-	Now that http is available, I guess 14.0 is still safe because of unicode */
+	Now that http is available, I guess 14.0 is still safer because of unicode. 
+	Also version 13 crashes due to a weird pointer issue */
 	version 14.0			
 	
 	/* Changelog
