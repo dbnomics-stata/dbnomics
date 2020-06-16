@@ -17,19 +17,14 @@ program dbnomics, rclass
 		19oct2018  v1.1.0 Added news API and smart listing (0.21.6)
 		21oct2018  v1.1.1 Improved parsing engine, added search endpoint (ver 0.21.6)
 		30oct2018  v1.1.2 Fixed bug in dbnomics news
-		17may2020  v1.2.0 Updated to API ver 0.22.0.1, added insecure request
+		17jun2020  v1.2.0 Updated to API ver 0.22.0.1, added insecure request
 	*/
 	
 	/*TODO:
-		Add insecure option for http API call  [x]
-		Add new metadata info to payloads [x] --- decided args are not worthy to include
-		Evaluate whether to add new align_period and complete_missing_periods options to account for new API parameters [x] --- decided against that, best to keep the payload as small as possible
-		An HTTP error is now thrown by the server when the hard limit of 1000 is reached. Fix related subroutines [x]
-		Add nois _dots to import subroutine ][x]
-		Re-activate dbnomics use for quicker CSV import of single series [x]
+		Add new metadata info to payloads [n] --- decided args are not worthy to include
+		Evaluate whether to add new align_period and complete_missing_periods options to account for new API parameters [n] --- decided against that, best to keep the payload as small as possible
 		Stata can't copy internet files when the server throws an HTTP  error. There's no way to parse error messages then []
-		Build ad-hoc parser for observations_attributes list of lists in dbnomics import [x]
-		DEBUG dbnomics series, pr(BIS) d(credit_gap) clear
+		dbnomics_list causes a strange Stata crash when trying to visualise 25+ results. Capped the option at 25, perhaps the routine should be rewritten entirely []
 	*/
 
 	/* Housekeeping: taken from insheetjson */
@@ -56,7 +51,7 @@ program dbnomics, rclass
 	
 	/* Parse subcall*/
 	if inlist(`"`subcall'"',"provider","providers") {
-		dbnomics_providers `apipath', `clear'
+		dbnomics_providers `apipath', `clear' `macval(options)'
 	}
 	else if `"`subcall'"' == "tree" {
 		dbnomics_tree `apipath', `clear' `macval(options)'
@@ -126,11 +121,15 @@ program dbnomics_providers
 	tempfile jdata
 	capture copy "`apipath'" `jdata', replace
 	if (inrange(_rc,630,696) | _rc == 601) {
-		if (_rc == 601) di as err "Network error. Invalid API endpoint."
+		if (_rc == 601) di as err "server returned error. Check `apipath' for possibly more info about the issue."
+		char _dta[endpoint] "`apipath'"
+		char _dta[errormsg] "`=_rc'"
 		exit _rc
 	}
 	else if (_rc > 0) {
-		di as err "Kernel panic. Abort"
+		di as smcl "{err:failed to reach the dbnomics servers. Check your internet connection, or try using the {cmd:insecure} option.}"
+		char _dta[endpoint] "`apipath'"
+		char _dta[errormsg] "`=_rc'"
 		exit _rc
 	}
 	
@@ -217,11 +216,15 @@ program dbnomics_tree
 	tempfile jdata
 	capture copy "`apipath'" `jdata', replace
 	if (inrange(_rc,630,696) | _rc == 601) {
-		if (_rc == 601) di as smcl "{err:Network error. Please ensure {cmd:`provider'} is a valid DB.nomics provider}"
+		if (_rc == 601) di as smcl `"{err:server returned error. Make sure {cmd:`provider'} is a valid DB.nomics provider, or check {browse "`apipath'":`apipath'} for possibly more info about the issue.}"'			/*"'*/
+		char _dta[endpoint] "`apipath'"
+		char _dta[errormsg] "`=_rc'"	
 		exit _rc
 	}
 	else if (_rc > 0) {
-		di as err "Kernel panic. Abort"
+		di as smcl "{err:failed to reach the dbnomics servers. Check your internet connection, or try using the {cmd:insecure} option.}"
+		char _dta[endpoint] "`apipath'"
+		char _dta[errormsg] "`=_rc'"
 		exit _rc
 	}	
 	else {
@@ -276,7 +279,7 @@ program dbnomics_tree
 	
 	/* Add provider metadata */
 	mata: metadata = ("website","terms_of_use","region","name");
-	mata: providermeta = fetchkeyvals(fetchjson("`jdata'", "provider"), metadata);
+	mata: providermeta = fetchkeyvals(tree->getNode("provider"), metadata);
 	mata: for (kk=1; kk<=cols(metadata); kk++) st_lchar("_dta", metadata[kk], providermeta[kk]);
 
 	/* Add metadata as dataset data characteristic */
@@ -312,11 +315,15 @@ program dbnomics_structure
 	tempfile jdata
 	capture copy "`apipath'" `jdata', replace
 	if (inrange(_rc,630,696) | _rc == 601) {
-		if (_rc == 601) di as smcl "{err:Network error. Please ensure that {cmd:`provider'} and {cmd:`dataset'} are valid DB.nomics endpointts}"
+		if (_rc == 601) di as smcl `"{err:server returned error. Make sure {cmd:`provider'} and {cmd:`dataset'} are valid DB.nomics provider and dataset respectively, or check {browse "`path'/series/`provider'/`dataset'":`path'/series/`provider'/`dataset'} for possibly more info about the issue.}"'			/*"'*/
+		char _dta[errormsg] "`=_rc'"			
+		char _dta[endpoint] "`apipath'"
 		exit _rc
 	}
 	else if (_rc > 0) {
-		di as err "Kernel panic. Abort"
+		di as smcl "{err:failed to reach the dbnomics servers. Check your internet connection, or try using the {cmd:insecure} option.}"
+		char _dta[endpoint] "`apipath'"
+		char _dta[errormsg] "`=_rc'"
 		exit _rc
 	}	
 
@@ -330,17 +337,25 @@ program dbnomics_structure
 	mata: st_local("nomicsmeta", parsemeta(structure));
 
 	/* Parse dataset structure */
-	mata: datainfo = fetchjson("`jdata'", "dataset");
+	/* mata: datainfo = fetchjson("`jdata'", "dataset"); */
+	mata: datainfo = structure->getNode("dataset");
 	mata: datastruct = datainfo->getNode("dimensions_values_labels");
 	/* Check whether null structure */
 	mata: st_local("nullstruct", strofreal(datastruct==NULL));
 	
 	/* Proceed accordingly */
 	if ("`nullstruct'" == "0") {
-	
-		mata: tablestruct = dict2table(datastruct, dictdim(datastruct)[.,2]);
-		mata: pushdata(tablestruct[.,1..3], tokenizer("dimensions_values_labels", "_"));
 		
+		/* Parse UNDATA formatting exception */
+		if (`"`provider'"' == "UNDATA") {		
+			mata: tablestruct = dict2tablev2(datastruct, dictdim(datastruct)[.,2]);
+			mata: pushdata(tablestruct[.,2..4], tokenizer("dimensions_values_labels", "_"));
+		}
+		else {
+			mata: tablestruct = dict2table(datastruct, dictdim(datastruct)[.,2]);
+			mata: pushdata(tablestruct[.,1..3], tokenizer("dimensions_values_labels", "_"));
+		}
+
 		/* Add additional statistics (default) */
 		if ("`stat'" == "") {
 			
@@ -369,6 +384,14 @@ program dbnomics_structure
 					
 					qui save `statdata'
 				restore
+				
+				/* Parse UNDATA formatting exception */
+				if (`"`provider'"' == "UNDATA") {
+					qui replace labels = trim(substr(values, strpos(values,",")+1, .))  
+					qui replace values = trim(substr(values, 2, strpos(values,",")))
+					qui replace values = substr(values,1,length(values)-1)
+					qui replace labels = substr(labels,1,length(labels)-1)
+				}
 				
 				qui merge 1:1 dimensions values using `statdata', nogen norep
 				capture drop tracker
@@ -473,11 +496,25 @@ program dbnomics_series
 	tempfile jdata
 	capture copy `"`macval(apipath)'"' `jdata', replace
 	if (inrange(_rc,630,696) | _rc == 601) {
-		if (_rc == 601) di as smcl "{err:Network error. Please ensure that {cmd:`provider'} and {cmd:`dataset'} are valid DB.nomics endpointts}"
-		exit _rc
+		/* Determine whether it's a provider/dataset issue or sdmx or else */
+		char _dta[errormsg] "`=_rc'"
+		local theissue = _rc 
+		if (_rc == 601) {
+			capture copy `"`path'/series/`provider'/`dataset'?facets=false&metadata=false&format=json&limit=0&offset=0&observations=false"' `jdata', replace
+			if (_rc == 0) {
+				di as smcl `"{err:server returned error. Make sure `macval(options)'`sdmx' are valid DB.nomics filters, or check {browse "`apipath'":`apipath'} for possibly more info about the issue.}"'			/*"'*/
+			}
+			else {
+				di as smcl `"{err:server returned error. Make sure {cmd:`provider'} and {cmd:`dataset'} are valid DB.nomics provider and dataset respectively, or check {browse "`apipath'":`apipath'} for possibly more info about the issue.}"'			/*"'*/
+			}
+		}
+		char _dta[endpoint] "`apipath'"
+		exit `theissue'
 	}
 	else if (_rc > 0) {
-		di as err "Kernel panic. Abort"
+		di as smcl "{err:failed to reach the dbnomics servers. Check your internet connection, or try using the {cmd:insecure} option.}"
+		char _dta[endpoint] "`apipath'"
+		char _dta[errormsg] "`=_rc'"
 		exit _rc
 	}
 
@@ -634,22 +671,29 @@ program dbnomics_import
 		local apipath = `"`path'/series/`provider'/`dataset'?facets=false&metadata=false&format=json&limit=`limit'&offset=`offset'`macval(thequery)'&observations=true"'
 	}
 	
-	/* ma li _apipath */
-	
 	/* Save json locally to reduce server load over multiple calls */
 	tempfile jdata
 	capture copy `"`macval(apipath)'"' `jdata', replace
-	
-	if (_rc == 672 & `"`sdmx'"' != "") {
-		di as smcl "{err:Provider `provider' is not compatible with SDMX filters}"
-		exit 198
-	}
-	else if (inrange(_rc,630,696) | _rc == 601) {
-		if (_rc == 601) di as smcl "{err:Network error. Please ensure that {cmd:`provider'} and {cmd:`dataset'} are valid DB.nomics endpointts}"
-		exit _rc
+	if (inrange(_rc,630,696) | _rc == 601) {
+		/* Determine whether it's a provider/dataset issue or sdmx or else */
+		char _dta[errormsg] "`=_rc'"
+		local theissue = _rc 
+		if (_rc == 601) {
+			capture copy `"`path'/series/`provider'/`dataset'?facets=false&metadata=false&format=json&limit=0&offset=0&observations=false"' `jdata', replace
+			if (_rc == 0) {
+				di as smcl `"{err:server returned error. Make sure `macval(options)'`sdmx' are valid DB.nomics filters, or check {browse "`apipath'":`apipath'} for possibly more info about the issue.}"'			/*"'*/
+			}
+			else {
+				di as smcl `"{err:server returned error. Make sure {cmd:`provider'} and {cmd:`dataset'} are valid DB.nomics provider and dataset respectively, or check {browse "`apipath'":`apipath'} for possibly more info about the issue.}"'			/*"'*/
+			}
+		}
+		char _dta[endpoint] "`apipath'"
+		exit `theissue'
 	}
 	else if (_rc > 0) {
-		di as err "Kernel panic. Abort"
+		di as smcl "{err:failed to reach the dbnomics servers. Check your internet connection, or try using the {cmd:insecure} option.}"
+		char _dta[endpoint] "`apipath'"
+		char _dta[errormsg] "`=_rc'"	
 		exit _rc
 	}
 	
@@ -671,7 +715,7 @@ program dbnomics_import
 	mata: st_local("series_found", numseries[1]);
 	
 	if (`series_found' == 0) {
-		display as smcl "{err:Warning: no series found.}"
+		display as smcl "{err:no series found.}"
 	}
 	else {
 		/* Data is the array containing matching series */
@@ -734,7 +778,9 @@ program dbnomics_import
 	mata: datafeat = fetchkeyvals(datainfo, metadata);
 	mata: for (kk=1; kk<=cols(metadata); kk++) st_lchar("_dta", metadata[kk], datafeat[kk]);	
 	
-	display as smcl _n "{res}`series_found' series found and `=min(`limit',`series_found')' loaded"
+	local series_loaded "`=min(`limit',`series_found')' "
+	if ("`series_loaded'" == "`series_found' ") local series_loaded
+	display as smcl _n "{res}`series_found' series found and `series_loaded'loaded"
 	
 	/* Add metadata as dataset data characteristic */
 	char _dta[provider] "`provider'"
@@ -770,11 +816,24 @@ program dbnomics_use
 	tempfile csvdata
 	capture copy `"`macval(apipath)'"' `csvdata', replace	
 	if (inrange(_rc,630,696) | _rc == 601) {
-		if (_rc == 601) di as smcl "{err:Network error. Please ensure that {cmd:`provider'}, {cmd:`dataset'} and {cmd:`series'} are valid DB.nomics endpointts}"
+		/* Determine whether it's a provider/dataset issue or sdmx or else */
+		if (_rc == 601) {
+			capture copy `"`path'/series/`provider'/`dataset'?facets=false&metadata=false&format=json&limit=0&offset=0&observations=false"' `jdata', replace
+			if (_rc == 0) {
+				di as smcl `"{err:server returned error. Make sure `series' is a valid DB.nomics series, or check {browse "`apipath'":`apipath'} for possibly more info about the issue.}"'			/*"'*/
+			}
+			else {
+				di as smcl `"{err:server returned error. Make sure {cmd:`provider'} and {cmd:`dataset'} are valid DB.nomics provider and dataset respectively, or check {browse "`apipath'":`apipath'} for possibly more info about the issue.}"'			/*"'*/
+			}
+		}
+		char _dta[endpoint] "`apipath'"
+		char _dta[errormsg] "`=_rc'"		
 		exit _rc
 	}
 	else if (_rc > 0) {
-		di as err "Kernel panic. Abort"
+		di as smcl "{err:failed to reach the dbnomics servers. Check your internet connection, or try using the {cmd:insecure} option.}"
+		char _dta[endpoint] "`apipath'"
+		char _dta[errormsg] "`=_rc'"		
 		exit _rc
 	}
 	
@@ -850,11 +909,15 @@ program dbnomics_news
 	tempfile jdata
 	capture copy "`apipath'" `jdata', replace
 	if (inrange(_rc,630,696) | _rc == 601) {
-		if (_rc == 601) di as err "Network error. Invalid API endpoint."
+		if (_rc == 601) di as smcl `"{err:server returned error. Check {browse "`apipath'":`apipath'} for possibly more info about the issue.}"'
+		char _dta[endpoint] "`apipath'"
+		char _dta[errormsg] "`=_rc'"			
 		exit _rc
 	}
 	else if (_rc > 0) {
-		di as err "Kernel panic. Abort"
+		di as smcl "{err:failed to reach the dbnomics servers. Check your internet connection, or try using the {cmd:insecure} option.}"
+		char _dta[endpoint] "`apipath'"
+		char _dta[errormsg] "`=_rc'"
 		exit _rc
 	}
 	
@@ -952,11 +1015,13 @@ program dbnomics_query, rclass
 
 	capture copy "`apipath'" `jdata', replace
 	if (inrange(_rc,630,696) | _rc == 601) {
-		if (_rc == 601) di as err "Network error. Invalid API endpoint."
+		if (_rc == 601) di as smcl `"{err:server returned error. Check {browse "`apipath'":`apipath'} for possibly more info about the issue.}"'
 		exit _rc
 	}
 	else if (_rc > 0) {
-		di as err "Kernel panic. Abort"
+		di as smcl "{err:failed to reach the dbnomics servers. Check your internet connection, or try using the {cmd:insecure} option.}"
+		char _dta[endpoint] "`apipath'"
+		char _dta[errormsg] "`=_rc'"
 		exit _rc
 	}
 
@@ -1710,8 +1775,9 @@ mata
 		/* Import JSON data*/
 		jstr = w.getrawcontents(url ,J(0,0,""));
 		
-		/* Remove strange JSON entry that screws up the libjson parse command */
-		jstr = subinstr(jstr, `""dimensions":{},"',"");	
+		/* Fill any empty JSON object that would screw up the libjson parse command */
+		jstr = subinstr(jstr, `":{},"',`":{"null":true},"');
+		/*jstr = subinstr(jstr, `""dimensions":{},"',"");	*/
 		
 		/*Parse contents*/
 		node = w.parse(jstr);
