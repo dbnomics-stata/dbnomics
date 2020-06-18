@@ -509,9 +509,14 @@ program dbnomics_series
 			else {
 				di as smcl `"{err:server returned error. Make sure {cmd:`provider'} and {cmd:`dataset'} are valid DB.nomics provider and dataset respectively, or check {browse "`apipath'":`apipath'} for possibly more info about the issue.}"'			/*"'*/
 			}
-		}
 		char _dta[endpoint] "`apipath'"
 		exit `theissue'
+		}
+		else {
+			char _dta[endpoint] "`apipath'"
+			error `theissue'
+			exit `theissue'
+		}
 	}
 	else if (_rc > 0) {
 		di as smcl "{err:failed to reach the dbnomics servers. Check your internet connection, or try using the {cmd:insecure} option.}"
@@ -696,9 +701,14 @@ program dbnomics_import
 			else {
 				di as smcl `"{err:server returned error. Make sure {cmd:`provider'} and {cmd:`dataset'} are valid DB.nomics provider and dataset respectively, or check {browse "`apipath'":`apipath'} for possibly more info about the issue.}"'			/*"'*/
 			}
+			char _dta[endpoint] "`apipath'"
+			exit `theissue'
 		}
-		char _dta[endpoint] "`apipath'"
-		exit `theissue'
+		else {
+			char _dta[endpoint] "`apipath'"
+			error `theissue'
+			exit `theissue'
+		}
 	}
 	else if (_rc > 0) {
 		di as smcl "{err:failed to reach the dbnomics servers. Check your internet connection, or try using the {cmd:insecure} option.}"
