@@ -1,217 +1,270 @@
+
+<html>
+<head>
+<meta http-equiv="Content-type" content="text/html; charset=iso-8859-1">
+<meta http-equiv="Content-Style-Type" content="text/css">
+<style type="text/css">
+BODY{background-color: ffffff;
+    font-family: monaco, "courier new", monospace;
+     color: #000000}
+.input, .result, .error{font-weight: bold}
+.input {color: #000000}
+.result{color: #000000}
+.error{color: #ff0000}
+</style>
+</head>
+<body>
 <pre>
-<p>
-<b><u>Title</u></b>
-<p>
-    <b>dbnomics</b> -- Stata client for DB.nomics, the world's economic database
-        (https://db.nomics.world)
 <br><br>
-<a name="description"></a><b><u>Description</u></b>
+<span class=result><u>Title</u></span>
 <br><br>
-    <b>dbnomics</b> provides a suite of tools to search, browse and import time series data
-    from DB.nomics, the world's economic database (https://db.nomics.world).  DB.nomics
-    is a web-based platform that aggregates and maintains time series data from various
-    statistical agencies across the world.  <b>dbnomics</b> only works with Stata 14.0 or
-    higher, since it relies on the secure HTTP protocol (<i>https</i>).
+    <span class=result>dbnomics</span> -- Stata client for DB.nomics, the world's economic database (https://db.nomics.world)
 <br><br>
-    <b>dbnomics</b> provides an interface to DB.nomics' RESTful API
-    (https://api.db.nomics.world/apidocs), allowing for the advanced filtering of data
-    using Stata's native options syntax (see Examples). To achieve this, the command
-    relies on Erik Lindsley's libjson backend (ssc install libjson).
+<a name="description"></a><span class=result><u>Description</u></span>
 <br><br>
-<a name="syntax"></a><b><u>Syntax</u></b>
+    <span class=result>dbnomics</span> provides a suite of tools to search, browse and import time series data from DB.nomics, the
+    world's economic database (https://db.nomics.world).  DB.nomics is a web-based platform that aggregates
+    and maintains time series data from various statistical agencies across the world.  <span class=result>dbnomics</span> only works
+    with Stata 14.0 or higher.
+<br><br>
+    <span class=result>dbnomics</span> provides an interface between Stata and DB.nomics' API (https://api.db.nomics.world/apidocs). It
+    enables creating custom queries through Stata's options syntax (see Examples). To achieve this, the
+    command relies on Erik Lindsley's libjson Mata library (ssc install libjson).
+<br><br>
+<a name="syntax"></a><span class=result><u>Syntax</u></span>
 <br><br>
         <i>Load list of providers</i>
-        <b>dbnomics</b> <b><u>provider</u></b><b>s</b> [<b>,</b> <b>clear</b>]
+        <span class=result>dbnomics</span> <span class=result><u>provider</u></span><span class=result>s</span> [<span class=result>,</span> <span class=result>clear insecure</span>]
 <br><br>
         <i>Load content tree for a given provider</i>
-        <b>dbnomics</b> <b>tree</b> <b>,</b> <b><u>pr</u></b><b>ovider(</b><i>PRcode</i><b>)</b> [<b>clear</b>]
+        <span class=result>dbnomics</span> <span class=result>tree</span> <span class=result>,</span> <span class=result><u>pr</u></span><span class=result>ovider(</span><i>PRcode</i><span class=result>)</span> [<span class=result>clear insecure</span>]
 <br><br>
         <i>Load dataset structure given a provider and dataset</i>
-        <b>dbnomics</b> <b><u>data</u></b><b>structure</b> <b>,</b> <b><u>pr</u></b><b>ovider(</b><i>PRcode</i><b>)</b> <b><u>d</u></b><b>ataset(</b><i>DScode</i><b>)</b> [<b>clear</b> <b>nostat</b>]
+        <span class=result>dbnomics</span> <span class=result><u>data</u></span><span class=result>structure</span> <span class=result>,</span> <span class=result><u>pr</u></span><span class=result>ovider(</span><i>PRcode</i><span class=result>)</span> <span class=result><u>d</u></span><span class=result>ataset(</span><i>DScode</i><span class=result>)</span> [<span class=result>clear</span> <span class=result>insecure</span>]
 <br><br>
         <i>Load list of series for a given provider and dataset</i>
-        <b>dbnomics</b> <b>series</b> <b>,</b> <b><u>pr</u></b><b>ovider(</b><i>PRcode</i><b>)</b> <b><u>d</u></b><b>ataset(</b><i>DScode</i><b>)</b> [<b>clear</b> <b>limit(</b><i>int</i><b>)</b>
-        <i>dimensions_opt</i>]
+        <span class=result>dbnomics</span> <span class=result>series</span> <span class=result>,</span> <span class=result><u>pr</u></span><span class=result>ovider(</span><i>PRcode</i><span class=result>)</span> <span class=result><u>d</u></span><span class=result>ataset(</span><i>DScode</i><span class=result>)</span> [<i>dimensions_opt</i>|<span class=result>sdmx(</span><i>SDMX_mask</i><span class=result>)</span>] [<span class=result>clear</span> <span class=result>insecure</span>
+        <span class=result>limit(</span><i>int</i><span class=result>)</span> <span class=result>offset(</span><i>int</i><span class=result>)</span>]
 <br><br>
         <i>Import series for a given provider and dataset</i>
-        <b>dbnomics</b> <b>import</b> <b>,</b> <b><u>pr</u></b><b>ovider(</b><i>PRcode</i><b>)</b> <b><u>d</u></b><b>ataset(</b><i>DScode</i><b>)</b> [<b>clear</b> <b>limit(</b><i>int</i><b>)</b>
-        <b><u>series</u></b><b>ids(</b><i>SERIES_list</i><b>)</b> <b>sdmx(</b><i>SDMX_mask</i><b>)</b> <i>dimensions_opt</i>]
+        <span class=result>dbnomics</span> <span class=result>import</span> <span class=result>,</span> <span class=result><u>pr</u></span><span class=result>ovider(</span><i>PRcode</i><span class=result>)</span> <span class=result><u>d</u></span><span class=result>ataset(</span><i>DScode</i><span class=result>)</span>
+        [<i>dimensions_opt</i>|<span class=result>sdmx(</span><i>SDMX_mask</i><span class=result>)</span>|<span class=result><u>series</u></span><span class=result>ids(</span><i>SERIES_list</i><span class=result>)</span>] [<span class=result>clear</span> <span class=result>insecure</span> <span class=result>limit(</span><i>int</i><span class=result>)</span> <span class=result>offset(</span><i>int</i><span class=result>)</span>]
+<br><br>
+        <i>Load a single series</i>
+        <span class=result>dbnomics</span> <span class=result>use</span> <i>series_id</i> <span class=result>,</span> <span class=result><u>pr</u></span><span class=result>ovider(</span><i>PRcode</i><span class=result>)</span> <span class=result><u>d</u></span><span class=result>ataset(</span><i>DScode</i><span class=result>)</span> [<span class=result>clear</span> <span class=result>insecure</span>]
 <br><br>
         <i>Search for data across DB.nomics' providers</i>
-        <b>dbnomics</b> <b>find</b> <i>search_str</i> [<b>,</b> <b>clear</b> <b>limit(</b><i>int</i><b>)</b> <b>all</b>]
+        <span class=result>dbnomics</span> <span class=result>find</span> <i>search_str</i> [<span class=result>,</span> <span class=result>clear</span> <span class=result>insecure</span> <span class=result>limit(</span><i>int</i><span class=result>)</span> <span class=result>offset(</span><i>int</i><span class=result>)</span>]
 <br><br>
         <i>Load and display recently updated datasets</i>
-        <b>dbnomics</b> <b>news</b> [<b>,</b> <b>clear</b> <b>limit(</b><i>int</i><b>)</b> <b>all</b>]
+        <span class=result>dbnomics</span> <span class=result>news</span> [<span class=result>,</span> <span class=result>clear</span> <span class=result>insecure</span> <span class=result>limit(</span><i>int</i><span class=result>)</span> <span class=result>offset(</span><i>int</i><span class=result>)</span>]
 <br><br>
 <br><br>
     <i>options</i>                    Description
-    ------------------------------------------------------------------------------------
+    ----------------------------------------------------------------------------------------------------------
     Main
-      <b>provider(</b><i>PRcode</i><b>)</b>         declare the reference data provider (<i>e.g.</i> AMECO, IMF,
-                                 Eurostat)
-      <b>dataset(</b><i>DScode</i><b>)</b>          declare the reference dataset (<i>e.g.</i> PIGOT, BOP,
-                                 ei_bsin_m)
-      <b>clear</b>                    replace data in memory
+      <span class=result>provider(</span><i>PRcode</i><span class=result>)</span>         declare the reference data provider (<i>e.g.</i> AMECO, IMF, Eurostat)
+      <span class=result>dataset(</span><i>DScode</i><span class=result>)</span>          declare the reference dataset (<i>e.g.</i> PIGOT, BOP, ei_bsin_m)
+      <span class=result>clear</span>                    replace data in memory
+      <span class=result>insecure</span>                 connect via <i>http</i> instead of the default https.
 <br><br>
-    For <b>datastructure</b> only
-      <b>nostat</b>                   disable the parsing of series statistics (may speed up
-                                 importing)
+    For <span class=result>series</span> and <span class=result>import</span> only
+      <i>dimensions_opt</i>           provider- and dataset-specific options to filter series (see Examples)
+      <span class=result>sdmx(</span><i>SDMX_mask</i><span class=result>)</span>          input an SDMX mask to select specific series (<span class=result>Note:</span> not all providers support
+                                 this option)
+      <span class=result>limit(</span><i>int</i><span class=result>)</span>               limit the number of series to load
+      <span class=result>offset(</span><i>int</i><span class=result>)</span>              skip the first <i>int</i> result(s)
 <br><br>
-    For <b>series</b> and <b>import</b> only
-      <b>limit(</b><i>int</i><b>)</b>               set the limit for the number of series to load
-      <i>dimensions_opt</i>           provider- and dataset-specific options to filter series
-                                 (see Examples)
+    For <span class=result>import</span> only
+      <span class=result>seriesids(</span><i>SERIES_list</i><span class=result>)</span>   input a comma-separated list to load specific time series
 <br><br>
-    For <b>import</b> only
-      <b>seriesids(</b><i>SERIES_list</i><b>)</b>   input a comma-separated list to load specific time series
-      <b>sdmx(</b><i>SDMX_mask</i><b>)</b>          input an SDMX mask to select specific series (<b>Note:</b> not
-                                 all providers support this option)
+    For <span class=result>use</span> only
+      <i>series_id</i>                identifier of the series (see Examples)
 <br><br>
-    For <b>find</b> and <b>news</b> only
-      <b>limit(</b><i>int</i><b>)</b>               maximum number of results to display
-      <b>all</b>                      show all results
-    ------------------------------------------------------------------------------------
+    For <span class=result>find</span> and <span class=result>news</span> only
+      <span class=result>limit(</span><i>int</i><span class=result>)</span>               limit the number of results to display
+      <span class=result>offset(</span><i>int</i><span class=result>)</span>              skip the first <i>int</i> result(s)
+    ----------------------------------------------------------------------------------------------------------
 <br><br>
-<a name="options"></a><b><u>Options</u></b>
+<a name="options"></a><span class=result><u>Options</u></span>
         +------+
-    ----+ Main +------------------------------------------------------------------------
+    ----+ Main +----------------------------------------------------------------------------------------------
 <br><br>
-    <b>provider(</b><i>PRcode</i><b>)</b> sets the source that contains the data of interest. The list of
-        data providers is continuously updated by the DB.nomics team.  To obtain the
-        most recent list of active data providers, use the command <b>dbnomics</b> <b><u>provider</u></b><b>s</b> [<b>,</b>
-        <b>clear</b>].
+    <span class=result>provider(</span><i>PRcode</i><span class=result>)</span> sets the source with the data of interest. The list of data providers is regularly
+        updated by the DB.nomics team.  To get the list of available data providers, type <span class=result>dbnomics</span> <span class=result><u>provider</u></span><span class=result>s</span>
+        [<span class=result>,</span> <span class=result>clear</span>].
 <br><br>
-    <b>dataset(</b><i>DScode</i><b>)</b> sets the source dataset for the time series of interest. A category
-        tree containing all datasets associated with each <b>provider(</b><i>PRcode</i><b>)</b> can be
-        obtained via the command <b>dbnomics</b> <b>tree,</b> <b><u>pr</u></b><b>ovider(</b><i>PRcode</i><b>)</b> [<b>clear</b>]. (<b>Note:</b> not all
-        datasets available in the category tree may be accessible).
+    <span class=result>dataset(</span><i>DScode</i><span class=result>)</span> sets the dataset with the time series of interest.  To get a hierarchy of all datasets
+        linked to a particular <span class=result>provider(</span><i>PRcode</i><span class=result>)</span>, type <span class=result>dbnomics</span> <span class=result>tree,</span> <span class=result><u>pr</u></span><span class=result>ovider(</span><i>PRcode</i><span class=result>)</span> [<span class=result>clear</span>].  (<span class=result>Note:</span> some
+        datasets in the category tree may not be accessible).
 <br><br>
-    <b>clear</b> clears data in memory before importing data from DB.nomics.
+    <span class=result>clear</span> clears data in memory before loading data from DB.nomics.
 <br><br>
-<b>        </b>+---------------+
-<b>    </b>----+<b> datastructure </b>+---------------------------------------------------------------
+    <span class=result>insecure</span> instructs dbnomics to access the DB.nomics platform via the <i>http</i> protocol, instead of the more
+        secure <i>https</i>.
 <br><br>
-    <b>nostat</b> disables the parsing of series statistics. By default, the command <b>dbnomics</b>
-        <b><u>data</u></b><b>structure</b> <b>, (...)</b> also collects information on the number of time series
-        associated with each dataset dimension value. Using the <b>nostat</b> option disables
-        this additional parsing of data, speeding up the loading process.
+<span class=result>        </span>+--------+
+<span class=result>    </span>----+<span class=result> series </span>+--------------------------------------------------------------------------------------------
 <br><br>
-<b>        </b>+---------------+
-<b>    </b>----+<b> series/import </b>+---------------------------------------------------------------
+<a name="dimensions_opt"></a>    <span class=result>dimensions_opt(</span><i>dim_values</i><span class=result>)</span> are options that depend on the specific <span class=result>provider(</span><i>PRcode</i><span class=result>)</span> and <span class=result>dataset(</span><i>DScode</i><span class=result>)</span>
+        and are used to identify a subset of series.  A list of dimensions can be obtained using<span class=result> dbnomics</span>
+        <span class=result>datastructure,</span> <span class=result>provider(</span><i>PRcode</i><span class=result>)</span> <span class=result>dataset(</span><i>DScode</i><span class=result>)</span>.  For example, if the dimensions of <span class=result>dataset(</span><i>DScode</i><span class=result>)</span>
+        are <span class=result>freq.unit.geo</span>, accepted options for<span class=result> dbnomics series,(</span>...<span class=result>)</span> and<span class=result> dbnomics import,(</span>...<span class=result>)</span> are
+        <span class=result>freq(</span><i>codelist</i><span class=result>)</span>, <span class=result>unit(</span><i>codelist</i><span class=result>)</span> and <span class=result>geo(</span><i>codelist</i><span class=result>)</span>.  Each <span class=result>dimension_opt(</span><i>dim_values</i><span class=result>)</span> can contain one or
+        more values in a space or comma-separated list, so as to select multiple dimensions at once (<i>e.g.</i>, a
+        list of countries).  <i>Note:</i> <span class=result>dbnomics</span> is not able to validate user-inputted <span class=result>dimension_opt(</span><i>dim_values</i><span class=result>)</span>;
+        if <span class=result>dimension_opt(</span><i>dim_values</i><span class=result>)</span> is incorrectly specified, <span class=result>dbnomics</span> may throw an error or return the
+        message no series found. See Examples.
 <br><br>
-    <b>limit(</b><i>int</i><b>)</b> sets the maximum number of series to load. It limits the number of series
-        identified by the <b>dbnomics series</b> or <b>dbnomics import</b> commands, resulting in
-        faster download of information.  A Warning message is issued if the total number
-        of series identified is larger than the inputted <b>limit(</b><i>int</i><b>)</b>.
+<a name="sdmx"></a>    <span class=result>sdmx(</span><i>SDMX_mask</i><span class=result>)</span> accepts an "SDMX mask" containing a list of dimensions separated with a dot "." character.
+        The dimensions are specific to each <span class=result>provider(</span><i>PRcode</i><span class=result>)</span> and <span class=result>dataset(</span><i>DScode</i><span class=result>)</span> and must be provided in the
+        order specified by the <span class=result>dataset(</span><i>DScode</i><span class=result>)</span> data structure.  The data structure can be obtained using
+        <span class=result>dbnomics datastructure,</span> <span class=result>provider(</span><i>PRcode</i><span class=result>)</span> <span class=result>dataset(</span><i>DScode</i><span class=result>)</span>. <i>Note:</i> some providers do not support this
+        feature.  In such case<span class=result> dbnomics</span> may throw an error or return the message no series found.
 <br><br>
-    <b>dimensions_opt(</b><i>dim_values</i><b>)</b> are <b>provider(</b><i>PRcode</i><b>)-</b> and <b>dataset(</b><i>DScode</i><b>)-</b>specific
-        options that can be used to identify series.  A list of dimensions can be
-        obtained using<b> dbnomics datastructure,</b> <b>provider(</b><i>PRcode</i><b>)</b> <b>dataset(</b><i>DScode</i><b>)</b>.  For
-        instance, assuming the dimensions of <b>dataset(</b><i>DScode</i><b>)</b> to be <b>freq.unit.geo</b>,
-        accepted options for<b> dbnomics series,(</b>...<b>)</b> and<b> dbnomics import,(</b>...<b>)</b> are
-        <b>freq(</b><i>codelist</i><b>)</b>, <b>unit(</b><i>codelist</i><b>)</b> and <b>geo(</b><i>codelist</i><b>)</b>.  Each
-        <b>dimension_opt(</b><i>dim_values</i><b>)</b> can contain one or more values in a space or
-        comma-separated list, so as to select multiple dimensions at once (<i>e.g.</i>, a list
-        of countries).  <i>Note:</i> <b>dbnomics</b> does not carry a validation check on
-        user-inputted <b>dimension_opt(</b><i>dim_values</i><b>)</b>; if a <b>dimension_opt(</b><i>dim_values</i><b>)</b> is
-        invalid, <b>dbnomics</b> will likely return the message Warning: no series found. See
-        Examples.
+        <i>Note</i>: <span class=result>dimensions_opt(</span><i>dim_values</i><span class=result>)</span> and <span class=result>sdmx(</span><i>SDMX_mask</i><span class=result>)</span> are mutually exclusive.
 <br><br>
-<b>        </b>+--------+
-<b>    </b>----+<b> import </b>+----------------------------------------------------------------------
+    <span class=result>limit(</span><i>int</i><span class=result>)</span> sets a limit to the number of series to load via dbnomics. A Warning message is issued if the
+        total number of series identified is larger than the inputted <span class=result>limit(</span><i>int</i><span class=result>)</span>.
 <br><br>
-    <i>Note</i>: the options below are mutually exclusive and are alternatives to
-        <b>dimensions_opt(</b><i>dim_values</i><b>)</b>.
+    <span class=result>offset(</span><i>int</i><span class=result>)</span> skips the first <i>int</i> series when loading data from dbnomics. This option can be combined with
+        <span class=result>limit(</span><i>int</i><span class=result>)</span> to get a specific subset of series.
 <br><br>
-    <b>seriesids(</b><i>SERIES_list</i><b>)</b> accepts a comma-separated list of names corresponding to
-        series available in <b>provider(</b><i>PRcode</i><b>)</b> and <b>dataset(</b><i>DScode</i><b>)</b>. Each series is then
-        imported accordingly.
+<span class=result>        </span>+--------+
+<span class=result>    </span>----+<span class=result> import </span>+--------------------------------------------------------------------------------------------
 <br><br>
-    <b>sdmx(</b><i>SDMX_mask</i><b>)</b> accepts an SDMX REST query ("SDMX mask") containing dimensions to
-        identify series for a <b>provider(</b><i>PRcode</i><b>)</b> and <b>dataset(</b><i>DScode</i><b>)</b> that supports this
-        function.  A list of dimensions can be obtained using<b> dbnomics datastructure,</b>
-        <b>provider(</b><i>PRcode</i><b>)</b> <b>dataset(</b><i>DScode</i><b>)</b>. <b>Note:</b> not all providers will support this
-        feature.  In such case<b> dbnomics import, (</b>...<b>)</b> may return a Warning: no series
-        found error.
+    <span class=result>dimensions_opt(</span><i>dim_values</i><span class=result>)</span> see above.
 <br><br>
-<b>        </b>+-----------+
-<b>    </b>----+<b> find/news </b>+-------------------------------------------------------------------
+    <span class=result>sdmx(</span><i>SDMX_mask</i><span class=result>)</span> see above.
 <br><br>
-    <b>limit(</b><i>int</i><b>)</b> sets the maximum number of results to load and display.
-    <b>all</b> forces the download and display of all matching results. <b>Note:</b> this option may
-        cause a server failure for queries with a large number of results.
+    <span class=result>seriesids(</span><i>SERIES_list</i><span class=result>)</span> accepts a comma-separated list of series identifiers that belong to a
+        <span class=result>provider(</span><i>PRcode</i><span class=result>)</span> and <span class=result>dataset(</span><i>DScode</i><span class=result>)</span>.
 <br><br>
-<a name="remarks"></a><b><u>Remarks</u></b>
+        <i>Note</i>: <span class=result>dimensions_opt(</span><i>dim_values</i><span class=result>)</span>, <span class=result>sdmx(</span><i>SDMX_mask</i><span class=result>)</span> and <span class=result>seriesids(</span><i>SERIES_list</i><span class=result>)</span> are mutually exclusive.
 <br><br>
-    This program has two main dependencies:
+    <span class=result>limit(</span><i>int</i><span class=result>)</span> sets a limit to the number of series to load via dbnomics. A Warning message is issued if the
+        total number of series identified is larger than the inputted <span class=result>limit(</span><i>int</i><span class=result>)</span>.
 <br><br>
-    1) The Mata json library <b>libjson</b> by Erik Lindsley is needed to parse JSON strings.
-    It can be found on SSC: ssc install libjson.
-    2) The routine <b>moss</b> by Robert Picard &amp; Nicholas J. Cox is needed to clean unicode
-    sequences. It can be found on SSC: ssc install moss.
+    <span class=result>offset(</span><i>int</i><span class=result>)</span> skips the first <i>int</i> series when loading data from dbnomics. This option can be combined with
+        <span class=result>limit(</span><i>int</i><span class=result>)</span> to get a specific subset of series. See Examples.
 <br><br>
-    After each API call, <b>dbnomics</b> stores significant metadata in the form of dataset
-    characteristics.  Type char li _dta[] after <b>dbnomics</b> to obtain important info about
-    the data, <i>e.g.</i>, the API endpoint.
+<span class=result>        </span>+-----+
+<span class=result>    </span>----+<span class=result> use </span>+-----------------------------------------------------------------------------------------------
 <br><br>
-<a name="examples"></a><b><u>Examples</u></b>
+    <i>series_id</i> is the unique identifier of a time series belonging to <span class=result>provider(</span><i>PRcode</i><span class=result>)</span> and <span class=result>dataset(</span><i>DScode</i><span class=result>)</span>.
+<br><br>
+<span class=result>        </span>+-----------+
+<span class=result>    </span>----+<span class=result> find/news </span>+-----------------------------------------------------------------------------------------
+<br><br>
+    <span class=result>limit(</span><i>int</i><span class=result>)</span> sets the maximum number of results to load and display.
+<br><br>
+    <span class=result>offset(</span><i>int</i><span class=result>)</span> skips the first <i>int</i> results. May be combined with <span class=result>limit(</span><i>int</i><span class=result>)</span> to get a specific subset of
+        results.
+<br><br>
+<br><br>
+<br><br>
+<a name="remarks"></a><span class=result><u>Remarks</u></span>
+<br><br>
+    <span class=result>dbnomics</span> has two main dependencies:
+<br><br>
+    1) The Mata json library <span class=result>libjson</span> by Erik Lindsley, needed to parse JSON strings. It can be found on SSC: 
+    ssc install libjson.
+    2) The routine <span class=result>moss</span> by Robert Picard &amp; Nicholas J. Cox, needed to clean some unicode sequences. It can be
+    found on SSC: ssc install moss.
+<br><br>
+    After each API call, <span class=result>dbnomics</span> stores significant metadata in the form of dataset characteristics.  Type
+    char li _dta[] after <span class=result>dbnomics</span> to obtain important info about the data, <i>e.g.</i>, the API endpoint.
+<br><br>
+<a name="examples"></a><span class=result><u>Examples</u></span>
+<br><br>
+    <i>Search for producer price data on the DB.nomics platform:</i>
+        <span class=input>. dbnomics find "producer price", clear</span>    <span class=result>///</span>  (click to run)
+        <i>(output omitted)</i>
 <br><br>
     <i>Load the list of available providers with additional metadata:</i>
-        <b>. dbnomics </b><b><u>provider</u></b><b>s, clear</b>
-<br><br>
-    <i>Load the dataset tree of of the </i><b>AMECO</b><i> provider:</i>
-        <b>. dbnomics tree, </b><b><u>pr</u></b><b>ovider(AMECO) clear</b>
-<br><br>
-    <i>Analyse the structure of dataset </i><b>PIGOT</b><i> for provider </i><b>AMECO</b><i>:</i>
-        <b>. dbnomics </b><b><u>data</u></b><b>structure, </b><b><u>pr</u></b><b>ovider(AMECO) </b><b><u>d</u></b><b>ataset(PIGOT) clear</b>
-        <b>Price deflator gross fixed capital formation: other investment</b>
-        86 series found. Order of dimensions: (freq.unit.geo)
-<br><br>
-    <i>List all series in </i><b>AMECO/PIGOT</b><i> containing deflators in national currency:</i>
-        <b>. dbnomics series, </b><b><u>pr</u></b><b>ovider(AMECO) </b><b><u>d</u></b><b>ataset(PIGOT) unit(national-currency-2010-100) clear</b>
-        40 of 86 series selected. Order of dimensions: (freq.unit.geo)
-<br><br>
-    <i>Import all series in </i><b>AMECO/PIGOT</b><i> containing deflators in national currency:</i>
-        <b>. dbnomics import, </b><b><u>pr</u></b><b>ovider(AMECO) </b><b><u>d</u></b><b>ataset(PIGOT) unit(national-currency-2010-100) clear</b>
-        ........................................
-        40 series found and imported
-<br><br>
-    <i>Import single </i><b>AMECO/PIGOT</b><i> series:</i>
-        <b>. dbnomics import, pr(AMECO) d(PIGOT) </b><b><u>series</u></b><b>ids(ESP.3.1.0.0.PIGOT,SVN.3.1.0.0.PIGOT,LVA.3.1.99.0.PIGOT) clear</b>
-        ...
-        3 series found and imported
-<br><br>
-    <b>Eurostat</b><i> typically supports SMDX queries</i>
-    <i>Import all series in </i><b>Eurostat/ei_bsin_q_r2</b><i> related to Belgium:</i>
-        <b>. dbnomics import, </b><b><u>pr</u></b><b>ovider(Eurostat) </b><b><u>d</u></b><b>ataset(ei_bsin_q_r2) geo(BE) s_adj(NSA) clear</b>
-        ..............
-        14 series found and imported
-<br><br>
-    <i>Do the same using </i><i>sdmx</i><i>:</i>
-        <b>. dbnomics import, </b><b><u>pr</u></b><b>ovider(Eurostat) </b><b><u>d</u></b><b>ataset(ei_bsin_q_r2) sdmx(Q..NSA.BE) clear</b>
-        ..............
-        14 series found and imported
+        <span class=input>. dbnomics </span><span class=result><u>provider</u></span><span class=result>s, clear</span>    <span class=result>///</span>  (click to run)
 <br><br>
     <i>Show recently updated datasets:</i>
-        <b>. dbnomics news, clear</b>
+        <span class=input>. dbnomics news, clear</span>    <span class=result>///</span>  (click to run)
         <i>(output omitted)</i>
 <br><br>
-    <i>Find topic of interest in DB.nomics' data:</i>
-        <b>. dbnomics find "producer price", clear</b>
-        <i>(output omitted)</i>
+    <i>Load the dataset tree of of the </i><span class=result>AMECO</span><i> provider:</i>
+        <span class=input>. dbnomics tree, </span><span class=result><u>pr</u></span><span class=result>ovider(AMECO) clear</span>    <span class=result>///</span>  (click to run)
 <br><br>
-<a name="results"></a><b><u>Stored results</u></b>
+    <i>Analyse the structure of dataset </i><span class=result>PIGOT</span><i> for provider </i><span class=result>AMECO</span><i>:</i>
+        <span class=input>. dbnomics </span><span class=result><u>data</u></span><span class=result>structure, </span><span class=result><u>pr</u></span><span class=result>ovider(AMECO) </span><span class=result><u>d</u></span><span class=result>ataset(PIGOT) clear</span>    <span class=result>///</span>  (click to run)
+        <span class=result>Price deflator gross fixed capital formation: other investment</span>
+        82 series found. Order of dimensions: (freq.unit.geo)
 <br><br>
-    <b>dbnomics</b> stores the following in <b>r()</b>:
+    <i>List all series in </i><span class=result>AMECO/PIGOT</span><i> containing deflators in national currency:</i>
+        <span class=input>. dbnomics series, </span><span class=result><u>pr</u></span><span class=result>ovider(AMECO) </span><span class=result><u>d</u></span><span class=result>ataset(PIGOT) unit(national-currency-2015-100) clear</span>
+        (click to run)
+        39 of 82 series selected. Order of dimensions: (freq.unit.geo)
+<br><br>
+    <i>Import all series in </i><span class=result>AMECO/PIGOT</span><i> containing deflators in national currency:</i>
+        <span class=input>. dbnomics import, </span><span class=result><u>pr</u></span><span class=result>ovider(AMECO) </span><span class=result><u>d</u></span><span class=result>ataset(PIGOT) unit(national-currency-2015-100) clear</span>
+        (click to run)
+        Processing 39 series
+        ........................................
+        <span class=result>39 series found and imported</span>
+<br><br>
+    <i>Import a few </i><span class=result>AMECO/PIGOT</span><i> series:</i>
+        <span class=input>. dbnomics import, pr(AMECO) d(PIGOT) </span><span class=result><u>series</u></span><span class=result>ids(ESP.3.1.0.0.PIGOT,SVN.3.1.0.0.PIGOT,LVA.3.1.99.0.PIGOT) </span>
+<span class=input>&gt; clear</span>
+        (click to run)
+        Processing 3 series
+        ...
+        <span class=result>3 series found and imported</span>
+<br><br>
+    <i>Import one specific series from </i><span class=result>AMECO/PIGOT</span><i>:</i>
+        <span class=input>. dbnomics use ESP.3.1.0.0.PIGOT, pr(AMECO) d(PIGOT) clear</span>
+        (click to run)
+        Annually – (National currency: 2015 = 100) – Spain (AMECO/PIGOT/ESP.3.1.0.0.PIGOT)
+        (62 observations read)
+<br><br>
+    <span class=result>Eurostat</span><i> supports SMDX queries</i>. <i>Import all series in </i><span class=result>Eurostat/ei_bsin_q_r2</span><i> related to Belgium:</i>
+        <span class=input>. dbnomics import, </span><span class=result><u>pr</u></span><span class=result>ovider(Eurostat) </span><span class=result><u>d</u></span><span class=result>ataset(ei_bsin_q_r2) geo(BE) s_adj(NSA) clear</span>
+        (click to run)
+        Processing 14 series
+        ..............
+        <span class=result>14 series found and imported</span>
+<br><br>
+    <i>Do the same using </i><i>sdmx</i><i>:</i>
+        <span class=input>. dbnomics import, </span><span class=result><u>pr</u></span><span class=result>ovider(Eurostat) </span><span class=result><u>d</u></span><span class=result>ataset(ei_bsin_q_r2) sdmx(Q..NSA.BE) clear</span>
+        (click to run)
+        Processing 14 series
+        ..............
+        <span class=result>14 series found and imported</span>
+<br><br>
+    <i>The </i><span class=result>Eurostat/urb_ctran</span><i> dataset offers 12280 series, more than permitted at once by DB.nomics</i>:
+        <span class=input>. dbnomics series, </span><span class=result><u>pr</u></span><span class=result>ovider(Eurostat) </span><span class=result><u>d</u></span><span class=result>ataset(urb_ctran) clear</span>
+        (click to run)
+        Warning: series set larger than dbnomics maximum provided items.
+        Use the <span class=result>offset</span> option to load series beyond the 1000th one.
+        12280 series selected. Order of dimensions: (FREQ.indic_ur.cities). <span class=result>Only #1 to #1000 retrieved</span>
+<br><br>
+    <i>Using </i><i>limit</i><i> and </i><i>offset</i><i>, we can instruct </i><i>dbnomics</i><i> to only get series #1001 to #1100</i>:
+        <span class=input>. dbnomics import, </span><span class=result><u>pr</u></span><span class=result>ovider(Eurostat) </span><span class=result><u>d</u></span><span class=result>ataset(urb_ctran) limit(100) offset(1000) clear</span>
+        (click to run)
+        Processing 100 series
+        ..................................................    50
+        ..................................................   100
+        <span class=result>12280 series found and #1001 to #1100 loaded</span>
+<br><br>
+<a name="results"></a><span class=result><u>Stored results</u></span>
+<br><br>
+    <span class=result>dbnomics</span> stores the following in <span class=result>r()</span>:
 <br><br>
     Local     
-      <b>endpoint</b>       name of <b>dbnomics</b> subcommand
-      <b>cmd#</b>           command to load # result shown (For <b>find</b> and <b>news</b> only)
+      <span class=result>endpoint</span>       name of <span class=result>dbnomics</span> subcommand
+      <span class=result>cmd#</span>           command to load # result shown (For <span class=result>find</span> and <span class=result>news</span> only)
 <br><br>
-<a name="author"></a><b><u>Author</u></b>
+<a name="author"></a><span class=result><u>Author</u></span>
 <br><br>
     Simone Signore
     signoresimone at yahoo [dot] it
+        https://dbnomics-stata.github.io/dbnomics/
+<br><br>
 </pre>
 </body>
 </html>

@@ -1,11 +1,13 @@
-*! Ver 1.1.2 30oct2018 Simone Signore
+*! Ver 1.2.0 17may2020 Simone Signore
 *! Stata API client for db.nomics.world. Requires libjson and moss
 capture program drop dbnomics
 
 /* Main wrapper command */
 program dbnomics, rclass
 	
-	/* May need adjustment because of https*/
+	/* Version 14.0 used to be necessary because only http secure calls were possible. 
+	Now that http is available, I guess 14.0 is still safer because of unicode. 
+	Also version 13 crashes due to a weird pointer issue */
 	version 14.0			
 	
 	/* Changelog
@@ -16,10 +18,14 @@ program dbnomics, rclass
 		19oct2018  v1.1.0 Added news API and smart listing (0.21.6)
 		21oct2018  v1.1.1 Improved parsing engine, added search endpoint (ver 0.21.6)
 		30oct2018  v1.1.2 Fixed bug in dbnomics news
+		17jun2020  v1.2.0 Updated to API ver 0.22.0.1, added insecure request
 	*/
 	
 	/*TODO:
-		Any other subcommand that could use dbnomics_list?
+		Add new metadata info to payloads [n] --- decided args are not worthy to include
+		Evaluate whether to add new align_period and complete_missing_periods options to account for new API parameters [n] --- decided against that, best to keep the payload as small as possible
+		Stata can't copy internet files when the server throws an HTTP  error. There's no way to parse error messages then []
+		dbnomics_list causes a strange Stata crash when trying to visualise 25+ results. Capped the option at 25, perhaps the routine should be rewritten entirely []
 	*/
 
 	/* Housekeeping: taken from insheetjson */
@@ -36,19 +42,22 @@ program dbnomics, rclass
 		exit 111
 	}
 
-	syntax [anything(name=subcall id="subcall list")], [CLEAR *]
+	syntax [anything(name=subcall id="subcall list")], [CLEAR INSECURE *]
 
 	/* Setup API endpoint */
-	local apipath = "https://api.db.nomics.world/v21" /* https://api.db.nomics.world/api/v1/json */
+	local apipath = cond("`insecure'" != "", "http", "https") + "://api.db.nomics.world/v22"
+	
+	/* Declare API call hard limit */
+	global S_dbnomics_hard_limit = 1000
 	
 	/* Parse subcall*/
 	if inlist(`"`subcall'"',"provider","providers") {
-		dbnomics_providers `apipath', `clear'
+		dbnomics_providers `apipath', `clear' `macval(options)'
 	}
 	else if `"`subcall'"' == "tree" {
 		dbnomics_tree `apipath', `clear' `macval(options)'
 	}
-	else if inlist(`"`subcall'"',"data","datastructure") {
+	else if strpos("datastructure", `"`subcall'"') & length(`"`subcall'"') >= 4 {
 		dbnomics_structure `apipath', `clear' `macval(options)'
 	}
 	else if `"`subcall'"' == "series" {
@@ -62,17 +71,17 @@ program dbnomics, rclass
 		timer clear 1 */
 	}
 	else if `"`subcall'"' == "news" {
-		dbnomics_news `apipath', `clear' `macval(options)'
+		dbnomics_news `apipath', `clear' `macval(options)' `insecure'
 	}
 	else if (substr(`"`subcall'"',1,4) == "use ") {
-		di as err "Sorry, the {err:{bf:dbnomics use}} API is deprecated. Use {cmd:dbnomics import, seriesids(...)} instead."
-		exit 198
-		/* tokenize `macval(subcall)'
-		dbnomics_use `2', `clear' `macval(options)' path(`apipath') */
+		tokenize `macval(subcall)'
+		dbnomics_use `2', `clear' path(`apipath') `macval(options)' delim(",")
+		/* di as err "Sorry, the {err:{bf:dbnomics use}} API is deprecated. Use {cmd:dbnomics import, seriesids(...)} instead."
+		exit 198 */
 	}
 	else if (substr(`"`subcall'"',1,5) == "find ") {
 		tokenize `"`subcall'"'
-		dbnomics_query `2', `clear' `macval(options)' path(`apipath')
+		dbnomics_query `2', `clear' `macval(options)' path(`apipath') `insecure'
 	}	
 	else {
 		di as err "dbnomics: unknown subcommand "`""`subcall'""'"" 
@@ -83,7 +92,7 @@ program dbnomics, rclass
 	return local endpoint "`subcall'"
 	
 	/* Housekeeping */
-	mata: mata clear	
+	/* Done at the subroutine level */
 
 end
 
@@ -107,17 +116,21 @@ program dbnomics_providers
 		clear
 	}
 	
-	display as txt "Downloading list of providers..."
+	display as txt "Fetching providers list"
 	
 	/* Save json locally to reduce server load over multiple calls */
 	tempfile jdata
 	capture copy "`apipath'" `jdata', replace
 	if (inrange(_rc,630,696) | _rc == 601) {
-		if (_rc == 601) di as err "Network error. Invalid API endpoint."
+		if (_rc == 601) di as err "server returned error. Check `apipath' for possibly more info about the issue."
+		char _dta[endpoint] "`apipath'"
+		char _dta[errormsg] "`=_rc'"
 		exit _rc
 	}
 	else if (_rc > 0) {
-		di as err "Kernel panic. Abort"
+		di as smcl "{err:failed to reach the dbnomics servers. Check your internet connection, or try using the {cmd:insecure} option.}"
+		char _dta[endpoint] "`apipath'"
+		char _dta[errormsg] "`=_rc'"
 		exit _rc
 	}
 	
@@ -148,7 +161,7 @@ program dbnomics_providers
 	
 		/* Parse dates */
 		unab varlist : _all
-		local dbdates "converted_at indexed_at"
+		local dbdates "converted_at indexed_at created_at"
 		local dbdates : list dbdates & varlist
 	
 		local iter 0
@@ -173,6 +186,11 @@ program dbnomics_providers
 	/* Add metadata as dataset data characteristic */
 	char _dta[endpoint] "`apipath'"
 	char _dta[_meta] "`nomicsmeta'"
+
+	di as text `"(`=_N' `=plural(_N, "provider")' read)"'
+	
+	/* Housekeeping */
+	capture mata : mata drop providers provobj provnode
 	
 end
 
@@ -199,15 +217,19 @@ program dbnomics_tree
 	tempfile jdata
 	capture copy "`apipath'" `jdata', replace
 	if (inrange(_rc,630,696) | _rc == 601) {
-		if (_rc == 601) di as smcl "{err:Network error. Please ensure {cmd:`provider'} is a valid DB.nomics provider}"
+		if (_rc == 601) di as smcl `"{err:server returned error. Make sure {cmd:`provider'} is a valid DB.nomics provider, or check {browse "`apipath'":`apipath'} for possibly more info about the issue.}"'			/*"'*/
+		char _dta[endpoint] "`apipath'"
+		char _dta[errormsg] "`=_rc'"	
 		exit _rc
 	}
 	else if (_rc > 0) {
-		di as err "Kernel panic. Abort"
+		di as smcl "{err:failed to reach the dbnomics servers. Check your internet connection, or try using the {cmd:insecure} option.}"
+		char _dta[endpoint] "`apipath'"
+		char _dta[errormsg] "`=_rc'"
 		exit _rc
 	}	
 	else {
-		display as txt "Downloading category tree for `provider'..."
+		display as txt "Fetching category tree for `provider'"
 	}	
 
 	/* Parse JSON */
@@ -248,17 +270,26 @@ program dbnomics_tree
 	quietly {
 		cleanutf8
 		auto_labels _all
+		capture {
+			format `=subinstr("`: format name'","%","%-",1)' name
+			replace name = ustrupper(name) if level == 1
+			replace name = " "*(level-1) + name
+		}
+		
 	}
 	
 	/* Add provider metadata */
 	mata: metadata = ("website","terms_of_use","region","name");
-	mata: providermeta = fetchkeyvals(fetchjson("`jdata'", "provider"), metadata);
+	mata: providermeta = fetchkeyvals(tree->getNode("provider"), metadata);
 	mata: for (kk=1; kk<=cols(metadata); kk++) st_lchar("_dta", metadata[kk], providermeta[kk]);
 
 	/* Add metadata as dataset data characteristic */
 	char _dta[provider] "`provider'"
 	char _dta[endpoint] "`apipath'"	
 	char _dta[_meta] "`nomicsmeta'"
+	
+	/* Housekeeping */
+	capture mata : mata drop tree metadata providermeta kk
 	
 end
 
@@ -268,7 +299,7 @@ program dbnomics_structure
 	syntax anything(name=path), PRovider(string) Dataset(string) [CLEAR noSTAT]
 	
 	/* Setup call*/
-	local apipath = "`path'/`provider'/`dataset'/series?limit=0&offset=0"
+	local apipath = "`path'/series/`provider'/`dataset'?facets=true&metadata=true&format=json&limit=0&offset=0"
 	
 	/* Parse clear option*/
 	if ("`clear'" == "") {
@@ -285,11 +316,15 @@ program dbnomics_structure
 	tempfile jdata
 	capture copy "`apipath'" `jdata', replace
 	if (inrange(_rc,630,696) | _rc == 601) {
-		if (_rc == 601) di as smcl "{err:Network error. Please ensure that {cmd:`provider'} and {cmd:`dataset'} are valid DB.nomics endpointts}"
+		if (_rc == 601) di as smcl `"{err:server returned error. Make sure {cmd:`provider'} and {cmd:`dataset'} are valid DB.nomics provider and dataset respectively, or check {browse "`path'/series/`provider'/`dataset'":`path'/series/`provider'/`dataset'} for possibly more info about the issue.}"'			/*"'*/
+		char _dta[errormsg] "`=_rc'"			
+		char _dta[endpoint] "`apipath'"
 		exit _rc
 	}
 	else if (_rc > 0) {
-		di as err "Kernel panic. Abort"
+		di as smcl "{err:failed to reach the dbnomics servers. Check your internet connection, or try using the {cmd:insecure} option.}"
+		char _dta[endpoint] "`apipath'"
+		char _dta[errormsg] "`=_rc'"
 		exit _rc
 	}	
 
@@ -303,17 +338,25 @@ program dbnomics_structure
 	mata: st_local("nomicsmeta", parsemeta(structure));
 
 	/* Parse dataset structure */
-	mata: datainfo = fetchjson("`jdata'", "dataset");
+	/* mata: datainfo = fetchjson("`jdata'", "dataset"); */
+	mata: datainfo = structure->getNode("dataset");
 	mata: datastruct = datainfo->getNode("dimensions_values_labels");
 	/* Check whether null structure */
 	mata: st_local("nullstruct", strofreal(datastruct==NULL));
 	
 	/* Proceed accordingly */
 	if ("`nullstruct'" == "0") {
-	
-		mata: tablestruct = dict2table(datastruct, dictdim(datastruct)[.,2]);
-		mata: pushdata(tablestruct[.,1..3], tokenizer("dimensions_values_labels", "_"));
 		
+		/* Parse UNDATA formatting exception */
+		if (`"`provider'"' == "UNDATA") {		
+			mata: tablestruct = dict2tablev2(datastruct, dictdim(datastruct)[.,2]);
+			mata: pushdata(tablestruct[.,2..4], tokenizer("dimensions_values_labels", "_"));
+		}
+		else {
+			mata: tablestruct = dict2table(datastruct, dictdim(datastruct)[.,2]);
+			mata: pushdata(tablestruct[.,1..3], tokenizer("dimensions_values_labels", "_"));
+		}
+
 		/* Add additional statistics (default) */
 		if ("`stat'" == "") {
 			
@@ -322,7 +365,7 @@ program dbnomics_structure
 			
 			/* Series stats matrix */
 			local nofacets 0
-			mata: tablesstat = dict2table(statstruct, dictdim(statstruct)[.,2]);
+			mata: tablesstat = dict2tablev2(statstruct, dictdim(statstruct)[.,2]);
 			
 			/* Capture empty node */
 			mata: st_local("nofacets", strofreal(tablesstat == "0"));
@@ -338,16 +381,26 @@ program dbnomics_structure
 					mata: tablesstat = select(tablesstat, tablesstat[., 2] :!= "label");
 					
 					/* Keep relevant cols */
-					mata: pushdata(tablesstat, tokenizer("dimensions_tracker_values_seriesnr_labels", "_"));
+					mata: pushdata(tablesstat, tokenizer("tracker_dimensions_values_seriescount", "_"));
 					
 					qui save `statdata'
 				restore
+				
+				/* Parse UNDATA formatting exception */
+				if (`"`provider'"' == "UNDATA") {
+					qui replace labels = trim(substr(values, strpos(values,",")+1, .))  
+					qui replace values = trim(substr(values, 2, strpos(values,",")))
+					qui replace values = substr(values,1,length(values)-1)
+					qui replace labels = substr(labels,1,length(labels)-1)
+				}
 				
 				qui merge 1:1 dimensions values using `statdata', nogen norep
 				capture drop tracker
 			
 			}
-			
+
+			/* Mata housekeeping */
+			mata : mata drop statstruct tablesstat			
 		}
 		
 		/* Reduce space (this can be automated in the future)*/
@@ -364,6 +417,9 @@ program dbnomics_structure
 			remove_destrchar _all
 			auto_labels _all
 		}
+		
+		/* Mata housekeeping */
+		mata : mata drop tablestruct
 	}
 	else {
 		di as smcl "{err:Warning. Dataset structure not found for {cmd:`dataset'}}"
@@ -389,24 +445,31 @@ program dbnomics_structure
 	char _dta[endpoint] "`apipath'"
 	char _dta[_meta] "`nomicsmeta'"
 	
+	/* Housekeeping */
+	capture mata : mata drop structure datainfo datastruct metadata datafeat kk structinfo
+	
 end
 
 /*4. Series */
 program dbnomics_series
 	
-	syntax anything(name=path), PRovider(string) Dataset(string) [LIMIT(integer 300) OFFSET(integer 0) CLEAR *]  /*SDMX(string asis)*/
+	syntax anything(name=path), PRovider(string) Dataset(string) [LIMIT(numlist integer max=1 <= ${S_dbnomics_hard_limit}) OFFSET(numlist integer max=1 >= 0) SDMX(string asis) CLEAR *]  
+
+	/* Set limit and offset if not provided  */
+	if ("`limit'" == "") local limit = ${S_dbnomics_hard_limit}
+	if ("`offset'" == "") local offset = 0
 
 	/* smdx and dimensions mutually exclusive */
-	/*if ("`sdmx'" != "" & "`macval(options)'" != "") {
+	if (`"`sdmx'"' != "" & "`macval(options)'" != "") {
 		di as smcl "{err:Options {cmd:sdmx} and {cmd:dimensions} are mutually exclusive.}"
 		exit 4
-	}*/
+	}
 	
 	/* Parse filtering options */
 	_optdict `macval(options)'
 	if (`"`dimdict'"' != "") local thequery "&dimensions=`dimdict'"	
 	
-	/* if (`"`sdmx'"' != "") local thequery "&sdmx_filter=`sdmx'" */
+	if (`"`sdmx'"' != "") mata: st_local("thequery", urlencode(`"`sdmx'"'))
 	
 	/* Parse clear option*/
 	if ("`clear'" == "") {
@@ -421,20 +484,44 @@ program dbnomics_series
 	
 	/* Capture limit override */
 	local override 0
-	if (`limit' != 300) local override 1
+	if (`limit' != ${S_dbnomics_hard_limit}) local override 1
 	
 	/* Setup call*/
-	local apipath = "`path'/`provider'/`dataset'/series?limit=`limit'&offset=`offset'`thequery'"
+	if (`"`sdmx'"' != "") {
+		local apipath = `"`path'/series/`provider'/`dataset'/`macval(thequery)'?facets=true&metadata=true&format=json&limit=`limit'&offset=`offset'&observations=false"'
+	}
+	else {
+		local apipath = `"`path'/series/`provider'/`dataset'?facets=true&metadata=true&format=json&limit=`limit'&offset=`offset'`macval(thequery)'&observations=false"'
+	}
 	
 	/* Save json locally to reduce server load over multiple calls */
 	tempfile jdata
-	capture copy "`apipath'" `jdata', replace
+	capture copy `"`macval(apipath)'"' `jdata', replace
 	if (inrange(_rc,630,696) | _rc == 601) {
-		if (_rc == 601) di as smcl "{err:Network error. Please ensure that {cmd:`provider'} and {cmd:`dataset'} are valid DB.nomics endpointts}"
-		exit _rc
+		/* Determine whether it's a provider/dataset issue or sdmx or else */
+		char _dta[errormsg] "`=_rc'"
+		local theissue = _rc 
+		if (_rc == 601) {
+			capture copy `"`path'/series/`provider'/`dataset'?facets=false&metadata=false&format=json&limit=0&offset=0&observations=false"' `jdata', replace
+			if (_rc == 0) {
+				di as smcl `"{err:server returned error. Make sure `macval(options)'`sdmx' are valid DB.nomics filters, or check {browse "`apipath'":`apipath'} for possibly more info about the issue.}"'			/*"'*/
+			}
+			else {
+				di as smcl `"{err:server returned error. Make sure {cmd:`provider'} and {cmd:`dataset'} are valid DB.nomics provider and dataset respectively, or check {browse "`apipath'":`apipath'} for possibly more info about the issue.}"'			/*"'*/
+			}
+		char _dta[endpoint] "`apipath'"
+		exit `theissue'
+		}
+		else {
+			char _dta[endpoint] "`apipath'"
+			error `theissue'
+			exit `theissue'
+		}
 	}
 	else if (_rc > 0) {
-		di as err "Kernel panic. Abort"
+		di as smcl "{err:failed to reach the dbnomics servers. Check your internet connection, or try using the {cmd:insecure} option.}"
+		char _dta[endpoint] "`apipath'"
+		char _dta[errormsg] "`=_rc'"
 		exit _rc
 	}
 
@@ -448,28 +535,27 @@ program dbnomics_series
 	mata: st_local("nomicsmeta", parsemeta(structure));
 
 	/* Parse dataset structure */
-	mata: datainfo = fetchjson("`jdata'", "dataset");
+	/* mata: datainfo = fetchjson("`jdata'", "dataset"); */
+	mata: datainfo = structure->getNode("dataset");
 	
 	/* Tot. series num. */
 	mata: numseries = fetchkeyvals(datainfo, ("nb_series"));
 	mata: st_local("series_count", numseries[1]);
-
+	
 	/* Parse series node */
-	mata: seriesinfo = fetchjson("`jdata'", "series");
+	/* mata: seriesinfo = fetchjson("`jdata'", "series"); */
+	mata: seriesinfo = structure->getNode("series");
 
 	/* Found series num */
 	mata: fndseries = fetchkeyvals(seriesinfo, ("num_found"));
 	mata: st_local("num_found", fndseries[1]);
 	
 	if (`limit' < min(`series_count',`num_found')) {
-		if `override' {
+		if ((min(`series_count',`num_found') < ${S_dbnomics_hard_limit}) & (`override')) {
 			display as smcl "{err:Warning: series set not complete. Consider removing the {cmd:limit} option.}"
 		}
-		else {
-			local newlimit = min(`series_count',`num_found')
-			if (`newlimit' > 10000) display as smcl "{err:Warning: Dowload size is significant, so the command may take a while. Consider adding selection criteria or using the {cmd:limit} option.}"
-			dbnomics_series `path', pr(`provider') d(`dataset') limit(`newlimit') offset(`offset') `clear' `macval(options)'
-			exit 0
+		else if (`override' == 0) {
+			display as smcl "{err:Warning: series set larger than dbnomics maximum provided items.}" _n "{err:Use the {cmd:offset} option to load series beyond the ${S_dbnomics_hard_limit}th one.}"
 		}
 	}
 		
@@ -478,11 +564,11 @@ program dbnomics_series
 	capture mata: pushdata(json2table(seriesdata), jsoncolsArray(seriesdata, 0)');
 	
 	if (_rc > 0) {
-		display as smcl "{err:Warning: no series found.}"
+		if (`limit' > 0) {
+			display as smcl "{err:Warning: no series found}"
+		}
 	}
 	else {
-		/* Reduce space (this can be automated in the future)*/
-		qui compress		
 
 		/* Housekeeping */
 		quietly {
@@ -491,6 +577,9 @@ program dbnomics_series
 			remove_destrchar _all
 			auto_labels _all
 		}
+		
+		/* Reduce space (this can be automated in the future)*/
+		qui compress
 	}
 	
 	/* Add provider metadata */
@@ -504,11 +593,14 @@ program dbnomics_series
 	mata: st_lchar("_dta", "dtstructure", structinfo);
 	
 	/* Display result */
-	if (`"`thequery'"' != "") local series_parsed "`num_found' of "
+	if ((`"`thequery'"' != "") | (`"`sdmx'"' != "")) local series_parsed "`num_found' of "
 	
 	display as txt "`series_parsed'`series_count' series selected. Order of dimensions: (`dtstructure')" _c
-	if (`override' & `limit' < min(`series_count',`num_found')) {
-		display as txt ". Only first `limit' retrieved"
+	if (`limit' == 0) {
+		display as smcl "{txt:. }{bf:None retrieved}"
+	}
+	else if (`limit' < min(`series_count',`num_found')) {
+		display as smcl "{txt:. }{bf:Only #`=`offset'+1' to #`=min(`limit'+`offset',`series_parsed'`series_count')' retrieved}"
 	}
 	else {
 		display as txt ""
@@ -520,12 +612,19 @@ program dbnomics_series
 	char _dta[endpoint] "`apipath'"
 	char _dta[_meta] "`nomicsmeta'"
 	
+	/* Housekeeping */
+	capture mata : mata drop datafeat datainfo fndseries kk metadata numseries seriesdata seriesinfo structinfo structure
+	
 end
 
 /*5. Import one or more series */
 program dbnomics_import
 
-	syntax anything(name=path), PRovider(string) Dataset(string) [LIMIT(integer 500) OFFSET(integer 0) SDMX(string asis) SERIESids(string asis) CLEAR *]
+	syntax anything(name=path), PRovider(string) Dataset(string) [LIMIT(numlist integer max=1 <=${S_dbnomics_hard_limit}) OFFSET(numlist integer max=1 >= 0) SDMX(string asis) SERIESids(string asis) CLEAR *]
+	
+	/* Set limit and offset if not provided  */
+	if ("`limit'" == "") local limit = ${S_dbnomics_hard_limit}
+	if ("`offset'" == "") local offset = 0
 	
 	/* smdx and dimensions mutually exclusive */
 	if (`"`sdmx'"' != "" & `"`macval(options)'"' != "") {
@@ -534,7 +633,7 @@ program dbnomics_import
 	}
 	/* seriesids and dimensions mutually exclusive */
 	if (`"`seriesids'"' != "" & `"`macval(options)'"' != "") {
-		di as smcl "{err:Options {cmd:sdmx} and {cmd:dimensions} are mutually exclusive.}"
+		di as smcl "{err:Options {cmd:seriesids} and {cmd:dimensions} are mutually exclusive.}"
 		exit 198
 	}	
 	/* seriesids and sdmx mutually exclusive */
@@ -546,25 +645,18 @@ program dbnomics_import
 	/* Parse filtering options */
 	_optdict `macval(options)'
 	if (`"`dimdict'"' != "") local thequery "&dimensions=`dimdict'"	
-	if (`"`sdmx'"' != "") {
-		/* First check if the provider is compatible with SMDX */
-		_sdmx_check `provider'
-		if (`sdmx_compatible' == 0) {
-			di as smcl "{err:Provider `provider' does not support {cmd:sdmx} masks. Use {it:dimensions_opt} instead.}"
-			exit 198
-		}
-		local thequery "&series_code_mask=`sdmx'"
-	}
+	
+	if (`"`sdmx'"' != "") mata: st_local("thequery", urlencode(`"`sdmx'"'))
 
 	/* Parse list of series (must be comma separated)*/
 	if (`"`seriesids'"' != "") {
 		local thequery "series_ids="
 		gettoken series oseries : seriesids, parse(",")
 		while ("`series'" != "") {
-			if ("`series'" != ",") local thequery "`thequery'`provider'/`dataset'/`series',"
+			if ("`series'" != ",") local thequery `"`thequery'`provider'/`dataset'/`macval(series)',"'
 			gettoken series oseries : oseries, parse(",")
 		}
-		local thequery = substr(`"`thequery'"', 1, length(`"`thequery'"')-1)
+		local thequery = substr(`"`macval(thequery)'"', 1, length(`"`macval(thequery)'"') - 1)
 	}
 	
 	/* Parse clear option*/
@@ -580,33 +672,48 @@ program dbnomics_import
 	
 	/* Capture limit override */
 	local override 0
-	if (`limit' != 500) local override 1
+	if (`limit' != ${S_dbnomics_hard_limit}) local override 1
 	
 	/* Setup call*/
 	if (`"`seriesids'"' != "") {
 		/* local apipath = "`path'/series?`thequery'&limit=`limit'&offset=`offset'" */
-		local apipath = "`path'/series?`thequery'"		/* API 0.21.5 forbids limit and offset */
+		local apipath = `"`path'/series?`macval(thequery)'&facets=false&metadata=false&observations=true"'
+	}
+	else if (`"`sdmx'"' != "") {
+		local apipath = `"`path'/series/`provider'/`dataset'/`macval(thequery)'?facets=false&metadata=false&format=json&limit=`limit'&offset=`offset'&observations=true"'
 	}
 	else {
-		local apipath = "`path'/series?provider_code=`provider'&dataset_code=`dataset'&limit=`limit'&offset=`offset'`thequery'"	
+		local apipath = `"`path'/series/`provider'/`dataset'?facets=false&metadata=false&format=json&limit=`limit'&offset=`offset'`macval(thequery)'&observations=true"'
 	}
-	
-	/* ma li _apipath */
 	
 	/* Save json locally to reduce server load over multiple calls */
 	tempfile jdata
-	capture copy "`apipath'" `jdata', replace
-	
-	if (_rc == 672 & `"`sdmx'"' != "") {
-		di as smcl "{err:Provider `provider' is not compatible with SDMX filters}"
-		exit 198
-	}
-	else if (inrange(_rc,630,696) | _rc == 601) {
-		if (_rc == 601) di as smcl "{err:Network error. Please ensure that {cmd:`provider'} and {cmd:`dataset'} are valid DB.nomics endpointts}"
-		exit _rc
+	capture copy `"`macval(apipath)'"' `jdata', replace
+	if (inrange(_rc,630,696) | _rc == 601) {
+		/* Determine whether it's a provider/dataset issue or sdmx or else */
+		char _dta[errormsg] "`=_rc'"
+		local theissue = _rc 
+		if (_rc == 601) {
+			capture copy `"`path'/series/`provider'/`dataset'?facets=false&metadata=false&format=json&limit=0&offset=0&observations=false"' `jdata', replace
+			if (_rc == 0) {
+				di as smcl `"{err:server returned error. Make sure `macval(options)'`sdmx' are valid DB.nomics filters, or check {browse "`apipath'":`apipath'} for possibly more info about the issue.}"'			/*"'*/
+			}
+			else {
+				di as smcl `"{err:server returned error. Make sure {cmd:`provider'} and {cmd:`dataset'} are valid DB.nomics provider and dataset respectively, or check {browse "`apipath'":`apipath'} for possibly more info about the issue.}"'			/*"'*/
+			}
+			char _dta[endpoint] "`apipath'"
+			exit `theissue'
+		}
+		else {
+			char _dta[endpoint] "`apipath'"
+			error `theissue'
+			exit `theissue'
+		}
 	}
 	else if (_rc > 0) {
-		di as err "Kernel panic. Abort"
+		di as smcl "{err:failed to reach the dbnomics servers. Check your internet connection, or try using the {cmd:insecure} option.}"
+		char _dta[endpoint] "`apipath'"
+		char _dta[errormsg] "`=_rc'"	
 		exit _rc
 	}
 	
@@ -619,30 +726,51 @@ program dbnomics_import
 	/* Parse metadata */
 	mata: st_local("nomicsmeta", parsemeta(structure));	
 	
-	/* Parse dataset structure */
-	mata: datainfo = fetchjson("`jdata'", "dataset");	
+	/* This API does not return dataset info anymore. No need for variables below */
+	/* Parse dataset structure. May be empty */
+	/* mata: datainfo = fetchjson("`jdata'", "dataset"); */
+	/* mata: datainfo = structure->getNode("dataset"); */
+
+	/* Tot. series num. */
+	/* mata: numseries = fetchkeyvals(datainfo, ("nb_series"));
+	mata: st_local("series_count", numseries[1]); */
 
 	/* Parse series node */
-	mata: seriesinfo = fetchjson("`jdata'", "series");
+	/* mata: seriesinfo = fetchjson("`jdata'", "series"); */
+	mata: seriesinfo = structure->getNode("series");
 	mata: numseries = fetchkeyvals(seriesinfo, ("num_found"));
 	mata: st_local("series_found", numseries[1]);
 	
 	if (`series_found' == 0) {
-		display as smcl "{err:Warning: no series found.}"
+		display as smcl "{err:no series found}"
+		local loopsize 0
 	}
 	else {
 		/* Data is the array containing matching series */
-		mata: srsdata = seriesinfo->getNode("data");
+		mata: srsdata = seriesinfo->getNode("docs");
+		
+		if (`limit' < `series_found') {
+			if ((`series_found' < ${S_dbnomics_hard_limit}) & (`override')) {
+				display as smcl "{err:Warning: series set not complete. Consider removing the {cmd:limit} option.}"
+			}
+			else if (`override' == 0) {
+				display as smcl "{err:Warning: series set larger than dbnomics maximum provided items.}" _n "{err:Use the {cmd:offset} option to load series beyond the ${S_dbnomics_hard_limit}th one.}"
+			}
+		}
 		
 		tempfile theseries
 		
 		nobreak {
 			quietly {
 				
+				
 				local appendlist
+				local loopsize = min(`limit'+`offset',`series_found') - `offset'
+				
+				nois di as smcl "{txt}Processing `loopsize' series"
 				
 				/* Note: this may fail for huge list of series if the c(macrolen) is hit */
-				forval jj = 1/`=min(`limit',`series_found')' {
+				forval jj = 1/`loopsize' {
 					
 					tempfile dbseries`jj'
 					if (`jj' > 1) local appendlist "`appendlist' "`dbseries`jj''""
@@ -650,20 +778,18 @@ program dbnomics_import
 						drop _all
 						
 						/* Parse series data */
-						capture mata: seriesformat(srsdata, `jj');
+						mata: seriesformat(srsdata, `jj');
 						save `dbseries`jj''
 					
-						if (`jj' == `series_found') {
-							noi di "."
-						}
-						else {
-							noi di "." _c
-						}
+						/* Progress report */
+						nois _dots `jj' 0
 					
 				}
 				
 				use `dbseries1', clear
 				if (`"`appendlist'"' != "") append using `appendlist', gen(series_num)
+				
+				qui replace series_num = series_num + `offset'
 				
 			}
 		}
@@ -687,25 +813,43 @@ program dbnomics_import
 	}
 	
 	/* Add provider metadata */
-	mata: metadata = ("code","name");
+	/* mata: metadata = ("code","name");
 	mata: datafeat = fetchkeyvals(datainfo, metadata);
-	mata: for (kk=1; kk<=cols(metadata); kk++) st_lchar("_dta", metadata[kk], datafeat[kk]);	
+	mata: for (kk=1; kk<=cols(metadata); kk++) st_lchar("_dta", metadata[kk], datafeat[kk]); */
 	
-	display as txt "`series_found' series found and imported"
+	/* Setup reporting of loaded series */
+	local series_loaded "`=min(`limit',`series_found')' "
+	if ("`series_loaded'" == "`series_found' ") {
+		local series_loaded
+	}
+	else if ((`series_found' > ${S_dbnomics_hard_limit})|(`offset'>0)) {
+		local series_loaded "#`=`offset'+1' to #`=min(`limit'+`offset', `series_found')' "
+	}
+	
+	/* Avoid extra jump when nr of series is an exact multiple of 50 */
+	if (mod(`loopsize',50) != 0) {
+		display as smcl _n "{res}`series_found' series found and `series_loaded'loaded"
+	}
+	else {
+		display as smcl "{res}`series_found' series found and `series_loaded'loaded"
+	}	
 	
 	/* Add metadata as dataset data characteristic */
 	char _dta[provider] "`provider'"
 	char _dta[dataset] "`dataset'"
 	char _dta[endpoint] "`apipath'"
-	char _dta[_meta] "`nomicsmeta'"	
+	char _dta[_meta] "`nomicsmeta'"
+
+	/* Housekeeping */
+	capture mata : mata drop datafeat kk metadata numseries srsdata seriesinfo structure
 	
 end
 
 
-/*6. Use single series (DEPRECATED) */
+/*6. Use single series */
 program dbnomics_use
 
-	syntax anything(name=series), PRovider(string) Dataset(string) PATH(string asis) [CLEAR DELIMiter(string)]
+	syntax anything(name=series), PRovider(string) Dataset(string) PATH(string asis) [CLEAR DELIMiter(passthru)]
 	
 	/* Parse clear option*/
 	if ("`clear'" == "") {
@@ -718,24 +862,53 @@ program dbnomics_use
 		clear
 	}	
 	
-	local apipath = "`path'/`provider'/`dataset'/`series'.csv"
+	local apipath = `"`path'/series/`provider'/`dataset'/`series'?format=csv&complete_missing_periods=false&align_periods=false"'
 	
 	/* Save csv locally to reduce server load in case of multiple calls */
 	tempfile csvdata
-	capture copy "`apipath'" `csvdata', replace	
+	capture copy `"`macval(apipath)'"' `csvdata', replace	
 	if (inrange(_rc,630,696) | _rc == 601) {
-		if (_rc == 601) di as smcl "{err:Network error. Please ensure that {cmd:`provider'}, {cmd:`dataset'} and {cmd:`series'} are valid DB.nomics endpointts}"
+		/* Determine whether it's a provider/dataset issue or sdmx or else */
+		if (_rc == 601) {
+			capture copy `"`path'/series/`provider'/`dataset'?facets=false&metadata=false&format=json&limit=0&offset=0&observations=false"' `jdata', replace
+			if (_rc == 0) {
+				di as smcl `"{err:server returned error. Make sure `series' is a valid DB.nomics series, or check {browse "`apipath'":`apipath'} for possibly more info about the issue.}"'			/*"'*/
+			}
+			else {
+				di as smcl `"{err:server returned error. Make sure {cmd:`provider'} and {cmd:`dataset'} are valid DB.nomics provider and dataset respectively, or check {browse "`apipath'":`apipath'} for possibly more info about the issue.}"'			/*"'*/
+			}
+		}
+		char _dta[endpoint] "`apipath'"
+		char _dta[errormsg] "`=_rc'"		
 		exit _rc
 	}
 	else if (_rc > 0) {
-		di as err "Kernel panic. Abort"
+		di as smcl "{err:failed to reach the dbnomics servers. Check your internet connection, or try using the {cmd:insecure} option.}"
+		char _dta[endpoint] "`apipath'"
+		char _dta[errormsg] "`=_rc'"		
 		exit _rc
-	}		
+	}
 	
-	if ("`delim'" == "") local delim tab
+	/* Import series name: that's the header of the value column (2nd column) */
+	quietly {
 	
-	import delimited period value using `csvdata', delim(`delim') clear
-	qui gen code = "`series'"
+		tempfile theseries
+		import delimited toss series_name using `csvdata', `delimiter' clear rowrange(1:1) varnames(nonames) encoding(utf-8)
+		local series_name = series_name[1]
+		gen byte dummy = 1
+		save `theseries'
+		
+		/* Import full dataset */
+		import delimited period value using `csvdata', `delimiter' clear encoding(utf-8) rowrange(2)
+		gen code = "`series'"
+		gen byte dummy = 1
+		merge m:1 dummy using `theseries', assert(3) nogen norep	keepusing(series_name)
+		drop dummy
+	
+	}
+	
+	di as text `"`series_name'"'
+	di as text `"(`=_N' `=plural(_N, "observation")' read)"'
 	
 	/* Housekeeping */
 	quietly {
@@ -755,6 +928,7 @@ program dbnomics_use
 	char _dta[provider] "`provider'"
 	char _dta[dataset] "`dataset'"
 	char _dta[series] "`series'"
+	char _dta[series_name] "`series_name'"
 	char _dta[endpoint] "`apipath'"
 	
 end
@@ -762,7 +936,10 @@ end
 /*7. Last updates */
 program dbnomics_news
 	
-	syntax anything(name=path), [CLEAR LIMIT(integer 20) ALLnews]
+	syntax anything(name=path), [CLEAR LIMIT(numlist integer max=1 <=100) INSECURE]
+	
+	/* Set limit if not provided  */
+	if ("`limit'" == "") local limit = 20
 	
 	/* Setup call*/
 	local apipath = "`path'/last-updates"
@@ -784,17 +961,22 @@ program dbnomics_news
 	tempfile jdata
 	capture copy "`apipath'" `jdata', replace
 	if (inrange(_rc,630,696) | _rc == 601) {
-		if (_rc == 601) di as err "Network error. Invalid API endpoint."
+		if (_rc == 601) di as smcl `"{err:server returned error. Check {browse "`apipath'":`apipath'} for possibly more info about the issue.}"'
+		char _dta[endpoint] "`apipath'"
+		char _dta[errormsg] "`=_rc'"			
 		exit _rc
 	}
 	else if (_rc > 0) {
-		di as err "Kernel panic. Abort"
+		di as smcl "{err:failed to reach the dbnomics servers. Check your internet connection, or try using the {cmd:insecure} option.}"
+		char _dta[endpoint] "`apipath'"
+		char _dta[errormsg] "`=_rc'"
 		exit _rc
 	}
 	
 	/* Parse JSON */
 	mata: thenews = fetchjson("`jdata'", "");
 	mata: datanode = thenews->getNode("datasets");
+	mata: datadocs = datanode->getNode("docs");
 	
 	/* Check for error in response */
 	mata: parseresperr(thenews);
@@ -803,7 +985,7 @@ program dbnomics_news
 	mata: st_local("nomicsmeta", parsemeta(thenews));
 	
 	/* Call mata function */
-	mata: pushdata(json2table(datanode), jsoncolsArray(datanode, 0)');
+	mata: pushdata(json2table(datadocs), jsoncolsArray(datadocs, 0)');
 	
 	/* Reduce space (this can be automated in the future)*/
 	qui compress	
@@ -843,19 +1025,24 @@ program dbnomics_news
 	}
 	
 	/* Display results */
-	if ("`allnews'" != "") local allnews showall
-	dbnomics_list `ordlist', target(code) pr(provider_code) subcall(structure) apipath("`path'") show(`limit') `allnews'
+	dbnomics_list `ordlist', target(code) pr(provider_code) subcall(structure) apipath("`path'") show(`limit') `insecure'
 	
 	/* Add metadata as dataset data characteristic */
 	char _dta[endpoint] "`apipath'"
 	char _dta[_meta] "`nomicsmeta'"
+	
+	/* Housekeeping */
+	capture mata : mata drop thenews datadocs datanode
 	
 end
 
 /*8. Search data and series */
 program dbnomics_query, rclass
 	
-	syntax anything(name=query), [CLEAR PATH(string asis) LIMIT(integer 20) OFFSET(integer 0) ALLresults]
+	syntax anything(name=query), [CLEAR PATH(string asis) LIMIT(numlist integer max=1 <=100) OFFSET(integer 0) INSECURE]
+	
+	/* Set limit if not provided  */
+	if ("`limit'" == "") local limit = 10
 	
 	/* Parse clear option*/
 	if ("`clear'" == "") {
@@ -870,45 +1057,33 @@ program dbnomics_query, rclass
 	
 	display as txt "Searching for {bf:`query'} in datasets and series..." _c
 	
-	/* Parse allres option */
-	if ("`allresults'" != "") {
-		local calls 2
-		local limit 1
-	}
-	else {
-		local calls 1
-	}
-	
 	/* Save json locally to reduce server load over multiple calls */
 	tempfile jdata
-	
-	while (`calls--') {
-		
-		/* Setup call*/
-		mata: st_local("queryenc", urlencode(`"`query'"'))
-		local apipath `"`path'/search?q=`queryenc'&limit=`limit'&offset=`offset'"'	
-	
-		capture copy "`apipath'" `jdata', replace
-		if (inrange(_rc,630,696) | _rc == 601) {
-			if (_rc == 601) di as err "Network error. Invalid API endpoint."
-			exit _rc
-		}
-		else if (_rc > 0) {
-			di as err "Kernel panic. Abort"
-			exit _rc
-		}
-	
-		/* Parse number of results */
-		mata: qresult = fetchjson("`jdata'", "results");
-		mata: numseries = fetchkeyvals(qresult, ("num_found"));
-		mata: st_local("results_found", numseries[1]);	
-		
-		if ("`allresults'" != "") local limit = `results_found'
-		
+
+	/* Setup call*/
+	mata: st_local("queryenc", urlencode(`"`query'"'))
+	local apipath `"`path'/search?q=`queryenc'&limit=`limit'&offset=`offset'"'	
+
+	capture copy "`apipath'" `jdata', replace
+	if (inrange(_rc,630,696) | _rc == 601) {
+		if (_rc == 601) di as smcl `"{err:server returned error. Check {browse "`apipath'":`apipath'} for possibly more info about the issue.}"'
+		exit _rc
 	}
-	
+	else if (_rc > 0) {
+		di as smcl "{err:failed to reach the dbnomics servers. Check your internet connection, or try using the {cmd:insecure} option.}"
+		char _dta[endpoint] "`apipath'"
+		char _dta[errormsg] "`=_rc'"
+		exit _rc
+	}
+
 	/* Parse JSON */
 	mata: qmain = fetchjson("`jdata'", "");
+
+	/* Parse number of results */
+	/* mata: qresult = fetchjson("`jdata'", "results"); */
+	mata: qresult = qmain->getNode("results");
+	mata: numseries = fetchkeyvals(qresult, ("num_found"));
+	mata: st_local("results_found", numseries[1]);	
 	
 	/* Check for error in response */
 	mata: parseresperr(qmain);
@@ -967,13 +1142,17 @@ program dbnomics_query, rclass
 			local displaylist : list displaylist & varlist
 		}
 	
-		if (`limit' < `results_found') local extramsg " (`limit' shown)"
+		if (`limit' < `results_found') local extramsg " (first `=min(`limit',25)' shown)"
 		display as txt "`results_found' `=plural(`results_found', "result")' found`extramsg'." _n
 		
 		/* Display results */
 		tempvar subcallvar
-		gen `subcallvar' = cond(type == "dataset", "structure", "import")
-		dbnomics_list `displaylist', target(code) pr(provider_code) subcall(`subcallvar') apipath("`path'") showall varsubcall
+		/* In the v22 API, server only responds datasets */
+		gen `subcallvar' = "structure"
+		/* Stata crashes with more than 25 results, set maximum display length to 25 */
+		dbnomics_list `displaylist', target(code) pr(provider_code) subcall(`subcallvar') apipath("`path'") shownum(25) varsubcall `insecure'
+		
+		capture mata : mata drop resnode
 		
 	}
 	else {
@@ -987,6 +1166,9 @@ program dbnomics_query, rclass
 	char _dta[endpoint] "`apipath'"
 	char _dta[_meta] "`nomicsmeta'"
 	
+	/* Housekeeping */
+	capture mata : mata drop qresult numseries qmain
+	
 end
 
 
@@ -997,7 +1179,7 @@ end
 capture program drop dbnomics_list
 program dbnomics_list, rclass
 
-	syntax varlist(min=2), Target(varname) SUBCALL(string) APIPATH(string) [SHOWnum(integer 20) PRoviderlist(varname) Datasetlist(varname) SHOWall VARSUBCALL]
+	syntax varlist(min=2), Target(varname) SUBCALL(string) APIPATH(string) [SHOWnum(integer 20) PRoviderlist(varname) Datasetlist(varname) VARSUBCALL INSECURE]
 	
 	/* Allocate screen space */
 	local cc = 1
@@ -1023,9 +1205,6 @@ program dbnomics_list, rclass
 		noi di as smcl "{col `tablelen'}  {c |}" _n "{c BLC}{hline `tablelen'}{c BRC}" _c
 	}
 	
-	/* Write table content */
-	if ("`showall'" != "") local shownum = `c(N)'
-	
 	quietly {
 		forval ii = 1/`=min(`shownum', `c(N)')' {
 			
@@ -1048,10 +1227,10 @@ program dbnomics_list, rclass
 				if ("`var'" == "`target'") {
 					/* Build command */
 					if ("`subcall_loop'" == "structure") {
-						local ocomm "dbnomics data, pr(`=`providerlist'[`ii']') d(`=`target'[`ii']') clear"
+						local ocomm "dbnomics data, pr(`=`providerlist'[`ii']') d(`=`target'[`ii']') clear `insecure'"
 					}
 					else if ("`subcall_loop'" == "import") {
-						local ocomm "dbnomics import, pr(`=`providerlist'[`ii']') d(`=`datasetlist'[`ii']') series(`=`target'[`ii']') clear"
+						local ocomm "dbnomics import, pr(`=`providerlist'[`ii']') d(`=`datasetlist'[`ii']') series(`=`target'[`ii']') clear `insecure'"
 					}
 					
 					
@@ -1146,6 +1325,7 @@ program cleanutf8
 			qui replace `v' = subinstr(`v',"\n","",.)
 			qui replace `v' = subinstr(`v',`"\""',`"""',.)
 			qui replace `v' = subinstr(`v',"\/","/",.)
+			qui replace `v' = "" if `v' == `""""'
 		}
 	}
 
@@ -1179,31 +1359,31 @@ program auto_labels
 	
 end
 
-/* Check SDMX compatibility */
-program _sdmx_check
+/* DEPRECATED: Check SDMX compatibility. As of API v22, all providers seem to accept an SDMX mask, when the data structure allows */
+* program _sdmx_check
 	
-	args prtocheck
+	* args prtocheck
 	
-	quietly {
-		/* Try to get up-to-date list from the web */
-		capture nobreak {
-			preserve
-				import delimited settings config using "https://git.nomics.world/dbnomics/dbnomics-api/raw/master/dbnomics_api/application.cfg", delim("=") clear
-				keep if trim(itrim(settings)) == "SERIES_CODE_MASK_COMPATIBLE_PROVIDERS"
-				replace config = subinstr(subinstr(subinstr(subinstr(config,",","",.), "}","",.), "{","",.),`"""',"",.)			/*"'*/
-				local checklist = config[1]
-			restore
-		}
-		if _rc {
-			local checklist "BIS ECB Eurostat FED IMF IMF-WEO INSEE OECD WTO"
-		}
-		local thetest : list prtocheck & checklist	
-	}
+	* quietly {
+		* /* Try to get up-to-date list from the web */
+		* capture nobreak {
+			* preserve
+				* import delimited settings config using "https://git.nomics.world/dbnomics/dbnomics-api/raw/master/dbnomics_api/application.cfg", delim("=") clear
+				* keep if trim(itrim(settings)) == "SERIES_CODE_MASK_COMPATIBLE_PROVIDERS"
+				* replace config = subinstr(subinstr(subinstr(subinstr(config,",","",.), "}","",.), "{","",.),`"""',"",.)			/*"'*/
+				* local checklist = config[1]
+			* restore
+		* }
+		* if _rc {
+			* local checklist "BIS ECB Eurostat FED IMF IMF-WEO INSEE OECD WTO"
+		* }
+		* local thetest : list prtocheck & checklist	
+	* }
 	
-	/* Return test results */	
-	c_local sdmx_compatible = (`"`thetest'"' != "")
+	* /* Return test results */	
+	* c_local sdmx_compatible = (`"`thetest'"' != "")
 			
-end
+* end
 
 /* Compile dimensions dict based on macval(options) */
 capture program drop _optdict
@@ -1281,11 +1461,14 @@ mata
 
 		pointer (class libjson scalar) scalar series
 		pointer (class libjson scalar) scalar cell
+		real scalar itk
 		string matrix thedata
 		string matrix oinfo
 		string matrix oinfo_p
 		string matrix odata
 		string matrix output
+		string matrix ainfo
+		string matrix adata
 		
 		/* Loop through series */
 		series = data->getArrayValue(cursor);
@@ -1299,7 +1482,7 @@ mata
 		scollector = J(1,0,"");
 		
 		/* Series data (period-value) */
-			/* printf("made it here \n") */
+		/* printf("made it here \n") */
 		for (kk=1; kk<=cols(selector); kk++) {
 			cell = series->getAttribute(selector[kk]);
 			if ((cell->isArray()) && (cell->bracketArrayScalarValues() != "[]")) {
@@ -1312,25 +1495,95 @@ mata
 			}
 		}
 				
-		/* Other info */
-		oinfo = dict2table(series, dictdim(series)[.,2] - 1);
+		/* Parse Other series info */
+		oinfo = dict2tablev2(series, 2);
 		
 		/* Filter out stuff that's already been parsed */
 		for (kk=1; kk<=cols(scollector); kk++) {
 			oinfo = select(oinfo, oinfo[.,1]:!=scollector[kk]);
 		}
+		
+		/* Ad-hoc parser for list of lists with observation attributes */
+		if (series->getAttribute("observations_attributes") != NULL) {
+			
+			oinfo = select(oinfo, oinfo[.,1]:!="observations_attributes");
+			
+			/* Get obs attributes data */
+			oadata = parseattributeslol(series->getAttribute("observations_attributes"), rows(thedata));
+			
+			/* Split header from content */
+			oainfo = oadata[1,.];
+			oadata = oadata[2..rows(oadata),.];
+			
+		}
+		else {
+			oainfo = J(1,0,"");
+			oadata = J(rows(thedata),0,"");
+		}		
+		
+		/* Transpose oinfo */
 		oinfo_p = oinfo';
-
+		
 		/* Adjust other info */
 		odata = J(rows(thedata), 1, oinfo_p[2,.]);
-
+		
 		/*Combine dataset*/
-		output = thedata, odata;
+		output = thedata, oadata, odata;
 
 		/* Export data */
-		pushdata(output, (scollector, oinfo_p[1,.]));
+		pushdata(output, (scollector, oainfo, oinfo_p[1,.]));
 
 	}
+	
+	/* NEW: ad-hoc function to parse observation_attributes list-of-lists */
+	string matrix parseattributeslol(pointer (class libjson scalar) scalar node, real scalar rowfit) {
+	
+		pointer (class libjson scalar) scalar sublist
+		real scalar alen
+		real scalar kk
+		string matrix collector
+		string matrix oadata
+		string matrix oheader
+		
+		/* Initialise collector given rowfit */
+		collector = J(rowfit+1,0,"");
+		
+		if (node->isArray() == 0) {
+			return(J(0,0,""))
+		}
+		else {
+			/* Get list size */
+			alen = node->arrayLength();
+			
+			/* Loop through list of lists */
+			for (kk=1; kk<=alen; kk++) {
+				
+				/* Get sub-list */
+				sublist = node->getArrayValue(kk);
+				
+				/* The format of these sublists is: "HEADER", ["content"] */
+				oheader = J(1,1, sublist->getArrayValue(1)->getString("",""))
+				
+				/* If the content is a string scalar, the payload provides a string, not a list */
+				if (sublist->getArrayValue(2)->isArray() == 1) {
+					oadata = parsearray(sublist->getArrayValue(2), 0);
+				}
+				else if (sublist->getArrayValue(2)->isString() == 1) {
+					oadata = J(1,rowfit,sublist->getArrayValue(2)->getString("",""));
+				}
+				else {
+					oadata = J(1,rowfit,"");
+				}				
+				
+				/* Piece things together and update collector */
+				collector = (collector, (oheader, oadata)')
+				
+			}
+		
+			/* Return output */
+			return(collector);
+		}
+	}	
 
 	string scalar parsestructure(pointer (class libjson scalar) scalar node) {
 	
@@ -1339,7 +1592,7 @@ mata
 		/* Two strategies:*/
 		/* 1) List in dimensions_codes_order is available */
 		templ = node->getNode("dimensions_codes_order");
-		if (templ!=NULL) {
+		if ((templ!=NULL) && (templ->arrayLength() > 0)) {
 			return(parsearray(templ, 1));
 		} else {
 		/* 2) Get list of attribute names */
@@ -1455,7 +1708,73 @@ mata
 		return(output);
 	}
 
+	/* Parse dict of dicts with complex structure. Assumption: at most x nested level */
+	string matrix dict2tablev2(pointer (class libjson scalar) scalar node, real scalar depth) {
 
+		string matrix output
+		string matrix content
+		string matrix yield
+		string matrix isempty
+		string rowvector selector
+		pointer (class libjson scalar) scalar cell
+		real scalar kk
+		
+		/* Capture empty node */
+		isempty = node->flattenToKV();
+		if (rows(isempty) == 0) {
+			return("0");
+		}
+		if (node==NULL) {
+			return("0");
+		}
+		
+		/* Parse nr. of kkeys */
+		selector = node->listAttributeNames(0);
+			
+		/*Initialise output*/
+		output = J(0, depth, "");
+			
+		for (kk=1; kk<=cols(selector); kk++) {
+			
+			cell = node->getAttribute(selector[kk]);
+			
+			if (cell==NULL) {
+				return(0);
+				exit();
+			} else if (cell->isObject()) {
+				if (depth <= 2) {
+					content = cell->flattenToKV();
+				} else {
+					content = dict2table(cell, depth - 1);
+				}
+				if (cols(content) < cols(output)) {
+					yield = (J(rows(content), 1, selector[kk]), content, J(rows(content), cols(output) - cols(content) - 1, ""));
+				} else {
+					yield = content;
+				}
+				output = output \ yield;
+			} else if (cell->isString()) {
+				output = output \ (selector[kk], cell->getString("",""), J(1, cols(output) - 2, ""));
+			} else if (cell->isArray()) {
+				if (cell->bracketArrayScalarValues() == "[]") {
+					content = json2table(cell)
+					content = (J(rows(content),1,selector[kk]), content)
+					if (cols(content) < cols(output)) {
+						yield = (strofreal(range(1, rows(content), 1)), content, J(rows(content), cols(output) - (cols(content) + 1), ""));
+					} else {
+						yield = content;
+					}
+					output = output \ yield;
+				} else {
+					output = output \ (selector[kk], cell->bracketArrayScalarValues(), J(1, cols(output) - 2, ""));
+				}
+			} 
+			
+			/* Skip cell if none of the above */
+			/* else {				return(0);				exit();			} */
+		}
+		return(output);
+	}
 
 	string matrix parsetree(pointer (class libjson scalar) scalar node, string rowvector dictkeys) {
 		
@@ -1505,6 +1824,10 @@ mata
 		/* Import JSON data*/
 		jstr = w.getrawcontents(url ,J(0,0,""));
 		
+		/* Fill any empty JSON object that would screw up the libjson parse command */
+		jstr = subinstr(jstr, `":{},"',`":{"null":true},"');
+		/*jstr = subinstr(jstr, `""dimensions":{},"',"");	*/
+		
 		/*Parse contents*/
 		node = w.parse(jstr);
 		
@@ -1524,7 +1847,7 @@ mata
 		pointer (class libjson scalar) scalar provnode
 		
 		/* Extract important node */
-		provnode = node->getNode("error_description");
+		provnode = node->getNode("message");
 		
 		/* Extract error message */
 		if (provnode==NULL) {
@@ -1650,6 +1973,11 @@ mata
 					if (cell->isString()) res[r,c] = cell->getString("","");
 					/* Case 2: cell contains array. Return list containing array values */
 					else if (cell->isArray()) res[r,c] = cell->bracketArrayScalarValues();
+					/* Case 3: cell is object. Return flattened json */
+					else if (cell->isObject()) {
+						if (substr(strtrim(cell->toString()), 1, 1) == "{") res[r,c] = substr(strtrim(cell->toString()),2,.)
+						else res[r,c] = strtrim(cell->toString())
+					}
 				}
 				
 				/* If cell is not found leave res with blank */
@@ -1812,19 +2140,25 @@ mata
 		/* Initialise output */
 		output = J(1, cols(dictkeys), "");
 		
-		for (k=1; k<=cols(dictkeys); k++) {
-			/* Get attr content */
-			cell = node->getAttribute(dictkeys[k]);		
-			
-			if (cell==NULL) {
-				return(output);
-			} else if (cell->isString()) {
-				output[k] = cell->getString("","");
-			} else {
-				output[k] = "";
-			}
+		if (node==NULL) {
+			/*No error key found*/
+			return(output);
 		}
-		return(output);
+		else {
+			for (k=1; k<=cols(dictkeys); k++) {
+				/* Get attr content */
+				cell = node->getAttribute(dictkeys[k]);		
+				
+				if (cell==NULL) {
+					return(output);
+				} else if (cell->isString()) {
+					output[k] = cell->getString("","");
+				} else {
+					output[k] = "";
+				}
+			}
+			return(output);
+		}
 	}	
 
 	/* URL encode, taken from libjson_source */
