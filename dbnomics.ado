@@ -453,10 +453,11 @@ end
 /*4. Series */
 program dbnomics_series
 	
-	syntax anything(name=path), PRovider(string) Dataset(string) [LIMIT(numlist integer max=1 <= ${S_dbnomics_hard_limit}) OFFSET(integer 0) SDMX(string asis) CLEAR *]  
+	syntax anything(name=path), PRovider(string) Dataset(string) [LIMIT(numlist integer max=1 <= ${S_dbnomics_hard_limit}) OFFSET(numlist integer max=1 >= 0) SDMX(string asis) CLEAR *]  
 
-	/* Set limit if not provided  */
+	/* Set limit and offset if not provided  */
 	if ("`limit'" == "") local limit = ${S_dbnomics_hard_limit}
+	if ("`offset'" == "") local offset = 0
 
 	/* smdx and dimensions mutually exclusive */
 	if (`"`sdmx'"' != "" & "`macval(options)'" != "") {
@@ -529,14 +530,16 @@ program dbnomics_series
 	mata: st_local("nomicsmeta", parsemeta(structure));
 
 	/* Parse dataset structure */
-	mata: datainfo = fetchjson("`jdata'", "dataset");
+	/* mata: datainfo = fetchjson("`jdata'", "dataset"); */
+	mata: datainfo = structure->getNode("dataset");
 	
 	/* Tot. series num. */
 	mata: numseries = fetchkeyvals(datainfo, ("nb_series"));
 	mata: st_local("series_count", numseries[1]);
 	
 	/* Parse series node */
-	mata: seriesinfo = fetchjson("`jdata'", "series");
+	/* mata: seriesinfo = fetchjson("`jdata'", "series"); */
+	mata: seriesinfo = structure->getNode("series");
 
 	/* Found series num */
 	mata: fndseries = fetchkeyvals(seriesinfo, ("num_found"));
@@ -546,7 +549,7 @@ program dbnomics_series
 		if ((min(`series_count',`num_found') < ${S_dbnomics_hard_limit}) & (`override')) {
 			display as smcl "{err:Warning: series set not complete. Consider removing the {cmd:limit} option.}"
 		}
-		else {
+		else if (`override' == 0) {
 			display as smcl "{err:Warning: series set larger than dbnomics maximum provided items.}" _n "{err:Use the {cmd:offset} option to load series beyond the ${S_dbnomics_hard_limit}th one.}"
 		}
 	}
@@ -556,7 +559,9 @@ program dbnomics_series
 	capture mata: pushdata(json2table(seriesdata), jsoncolsArray(seriesdata, 0)');
 	
 	if (_rc > 0) {
-		display as smcl "{err:Warning: no series found.}"
+		if (`limit' > 0) {
+			display as smcl "{err:Warning: no series found}"
+		}
 	}
 	else {
 
@@ -586,8 +591,11 @@ program dbnomics_series
 	if ((`"`thequery'"' != "") | (`"`sdmx'"' != "")) local series_parsed "`num_found' of "
 	
 	display as txt "`series_parsed'`series_count' series selected. Order of dimensions: (`dtstructure')" _c
-	if (`limit' < min(`series_count',`num_found')) {
-		display as txt ". Only first `limit' retrieved"
+	if (`limit' == 0) {
+		display as smcl "{txt:. }{bf:None retrieved}"
+	}
+	else if (`limit' < min(`series_count',`num_found')) {
+		display as smcl "{txt:. }{bf:Only #`=`offset'+1' to #`=min(`limit'+`offset',`series_parsed'`series_count')' retrieved}"
 	}
 	else {
 		display as txt ""
@@ -607,10 +615,11 @@ end
 /*5. Import one or more series */
 program dbnomics_import
 
-	syntax anything(name=path), PRovider(string) Dataset(string) [LIMIT(numlist integer max=1 <=${S_dbnomics_hard_limit}) OFFSET(integer 0) SDMX(string asis) SERIESids(string asis) CLEAR *]
+	syntax anything(name=path), PRovider(string) Dataset(string) [LIMIT(numlist integer max=1 <=${S_dbnomics_hard_limit}) OFFSET(numlist integer max=1 >= 0) SDMX(string asis) SERIESids(string asis) CLEAR *]
 	
-	/* Set limit if not provided  */
+	/* Set limit and offset if not provided  */
 	if ("`limit'" == "") local limit = ${S_dbnomics_hard_limit}
+	if ("`offset'" == "") local offset = 0
 	
 	/* smdx and dimensions mutually exclusive */
 	if (`"`sdmx'"' != "" & `"`macval(options)'"' != "") {
@@ -707,20 +716,37 @@ program dbnomics_import
 	/* Parse metadata */
 	mata: st_local("nomicsmeta", parsemeta(structure));	
 	
-	/* Parse dataset structure */
-	mata: datainfo = fetchjson("`jdata'", "dataset");	
+	/* This API does not return dataset info anymore. No need for variables below */
+	/* Parse dataset structure. May be empty */
+	/* mata: datainfo = fetchjson("`jdata'", "dataset"); */
+	/* mata: datainfo = structure->getNode("dataset"); */
+
+	/* Tot. series num. */
+	/* mata: numseries = fetchkeyvals(datainfo, ("nb_series"));
+	mata: st_local("series_count", numseries[1]); */
 
 	/* Parse series node */
-	mata: seriesinfo = fetchjson("`jdata'", "series");
+	/* mata: seriesinfo = fetchjson("`jdata'", "series"); */
+	mata: seriesinfo = structure->getNode("series");
 	mata: numseries = fetchkeyvals(seriesinfo, ("num_found"));
 	mata: st_local("series_found", numseries[1]);
 	
 	if (`series_found' == 0) {
-		display as smcl "{err:no series found.}"
+		display as smcl "{err:no series found}"
+		local loopsize 0
 	}
 	else {
 		/* Data is the array containing matching series */
 		mata: srsdata = seriesinfo->getNode("docs");
+		
+		if (`limit' < `series_found') {
+			if ((`series_found' < ${S_dbnomics_hard_limit}) & (`override')) {
+				display as smcl "{err:Warning: series set not complete. Consider removing the {cmd:limit} option.}"
+			}
+			else if (`override' == 0) {
+				display as smcl "{err:Warning: series set larger than dbnomics maximum provided items.}" _n "{err:Use the {cmd:offset} option to load series beyond the ${S_dbnomics_hard_limit}th one.}"
+			}
+		}
 		
 		tempfile theseries
 		
@@ -729,7 +755,7 @@ program dbnomics_import
 				
 				
 				local appendlist
-				local loopsize = min(`limit',`series_found')
+				local loopsize = min(`limit'+`offset',`series_found') - `offset'
 				
 				nois di as smcl "{txt}Processing `loopsize' series"
 				
@@ -753,6 +779,8 @@ program dbnomics_import
 				use `dbseries1', clear
 				if (`"`appendlist'"' != "") append using `appendlist', gen(series_num)
 				
+				qui replace series_num = series_num + `offset'
+				
 			}
 		}
 		
@@ -775,13 +803,26 @@ program dbnomics_import
 	}
 	
 	/* Add provider metadata */
-	mata: metadata = ("code","name");
+	/* mata: metadata = ("code","name");
 	mata: datafeat = fetchkeyvals(datainfo, metadata);
-	mata: for (kk=1; kk<=cols(metadata); kk++) st_lchar("_dta", metadata[kk], datafeat[kk]);	
+	mata: for (kk=1; kk<=cols(metadata); kk++) st_lchar("_dta", metadata[kk], datafeat[kk]); */
 	
+	/* Setup reporting of loaded series */
 	local series_loaded "`=min(`limit',`series_found')' "
-	if ("`series_loaded'" == "`series_found' ") local series_loaded
-	display as smcl _n "{res}`series_found' series found and `series_loaded'loaded"
+	if ("`series_loaded'" == "`series_found' ") {
+		local series_loaded
+	}
+	else if ((`series_found' > ${S_dbnomics_hard_limit})|(`offset'>0)) {
+		local series_loaded "#`=`offset'+1' to #`=min(`limit'+`offset', `series_found')' "
+	}
+	
+	/* Avoid extra jump when nr of series is an exact multiple of 50 */
+	if (mod(`loopsize',50) != 0) {
+		display as smcl _n "{res}`series_found' series found and `series_loaded'loaded"
+	}
+	else {
+		display as smcl "{res}`series_found' series found and `series_loaded'loaded"
+	}	
 	
 	/* Add metadata as dataset data characteristic */
 	char _dta[provider] "`provider'"
@@ -790,7 +831,7 @@ program dbnomics_import
 	char _dta[_meta] "`nomicsmeta'"
 
 	/* Housekeeping */
-	capture mata : mata drop datafeat datainfo kk metadata numseries srsdata seriesinfo structure
+	capture mata : mata drop datafeat kk metadata numseries srsdata seriesinfo structure
 	
 end
 
@@ -885,7 +926,7 @@ end
 /*7. Last updates */
 program dbnomics_news
 	
-	syntax anything(name=path), [CLEAR LIMIT(numlist integer max=1 <=100) ALLnews INSECURE]
+	syntax anything(name=path), [CLEAR LIMIT(numlist integer max=1 <=100) INSECURE]
 	
 	/* Set limit if not provided  */
 	if ("`limit'" == "") local limit = 20
@@ -974,8 +1015,7 @@ program dbnomics_news
 	}
 	
 	/* Display results */
-	if ("`allnews'" != "") local allnews showall
-	dbnomics_list `ordlist', target(code) pr(provider_code) subcall(structure) apipath("`path'") show(`limit') `allnews' `insecure'
+	dbnomics_list `ordlist', target(code) pr(provider_code) subcall(structure) apipath("`path'") show(`limit') `insecure'
 	
 	/* Add metadata as dataset data characteristic */
 	char _dta[endpoint] "`apipath'"
@@ -1026,13 +1066,14 @@ program dbnomics_query, rclass
 		exit _rc
 	}
 
-	/* Parse number of results */
-	mata: qresult = fetchjson("`jdata'", "results");
-	mata: numseries = fetchkeyvals(qresult, ("num_found"));
-	mata: st_local("results_found", numseries[1]);	
-		
 	/* Parse JSON */
 	mata: qmain = fetchjson("`jdata'", "");
+
+	/* Parse number of results */
+	/* mata: qresult = fetchjson("`jdata'", "results"); */
+	mata: qresult = qmain->getNode("results");
+	mata: numseries = fetchkeyvals(qresult, ("num_found"));
+	mata: st_local("results_found", numseries[1]);	
 	
 	/* Check for error in response */
 	mata: parseresperr(qmain);
@@ -1128,7 +1169,7 @@ end
 capture program drop dbnomics_list
 program dbnomics_list, rclass
 
-	syntax varlist(min=2), Target(varname) SUBCALL(string) APIPATH(string) [SHOWnum(integer 20) PRoviderlist(varname) Datasetlist(varname) SHOWall VARSUBCALL INSECURE]
+	syntax varlist(min=2), Target(varname) SUBCALL(string) APIPATH(string) [SHOWnum(integer 20) PRoviderlist(varname) Datasetlist(varname) VARSUBCALL INSECURE]
 	
 	/* Allocate screen space */
 	local cc = 1
@@ -1153,9 +1194,6 @@ program dbnomics_list, rclass
 		}
 		noi di as smcl "{col `tablelen'}  {c |}" _n "{c BLC}{hline `tablelen'}{c BRC}" _c
 	}
-	
-	/* Write table content */
-	if ("`showall'" != "") local shownum = `c(N)'
 	
 	quietly {
 		forval ii = 1/`=min(`shownum', `c(N)')' {
@@ -2092,19 +2130,25 @@ mata
 		/* Initialise output */
 		output = J(1, cols(dictkeys), "");
 		
-		for (k=1; k<=cols(dictkeys); k++) {
-			/* Get attr content */
-			cell = node->getAttribute(dictkeys[k]);		
-			
-			if (cell==NULL) {
-				return(output);
-			} else if (cell->isString()) {
-				output[k] = cell->getString("","");
-			} else {
-				output[k] = "";
-			}
+		if (node==NULL) {
+			/*No error key found*/
+			return(output);
 		}
-		return(output);
+		else {
+			for (k=1; k<=cols(dictkeys); k++) {
+				/* Get attr content */
+				cell = node->getAttribute(dictkeys[k]);		
+				
+				if (cell==NULL) {
+					return(output);
+				} else if (cell->isString()) {
+					output[k] = cell->getString("","");
+				} else {
+					output[k] = "";
+				}
+			}
+			return(output);
+		}
 	}	
 
 	/* URL encode, taken from libjson_source */
