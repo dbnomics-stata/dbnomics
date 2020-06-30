@@ -1,4 +1,4 @@
-*! Ver 1.2.0 17may2020 Simone Signore
+*! Ver 1.2.0 17jun2020 Simone Signore
 *! Stata API client for db.nomics.world. Requires libjson and moss
 capture program drop dbnomics
 
@@ -409,6 +409,8 @@ program dbnomics_structure
 		/* Housekeeping */
 		quietly {
 			cleanutf8
+			format `=subinstr("`: format values'","%","%-",1)' values
+			format `=subinstr("`: format labels'","%","%-",1)' labels
 			/* Use destring carefully */
 			unab nodestr: dimensions values
 			unab allvars : _all
@@ -787,9 +789,13 @@ program dbnomics_import
 				}
 				
 				use `dbseries1', clear
-				if (`"`appendlist'"' != "") append using `appendlist', gen(series_num)
-				
-				qui replace series_num = series_num + `offset'
+				if (`"`appendlist'"' != "") { 
+					append using `appendlist', gen(series_num)
+					qui replace series_num = series_num + `offset'
+				}
+				else {
+					qui gen byte series_num = 0 + `offset'
+				}
 				
 			}
 		}
@@ -823,7 +829,12 @@ program dbnomics_import
 		local series_loaded
 	}
 	else if ((`series_found' > ${S_dbnomics_hard_limit})|(`offset'>0)) {
-		local series_loaded "#`=`offset'+1' to #`=min(`limit'+`offset', `series_found')' "
+		if (`limit' > 1) {
+			local series_loaded "#`=`offset'+1' to #`=min(`limit'+`offset', `series_found')' "
+		}
+		else {
+			local series_loaded "#`=`offset'+1' "
+		}
 	}
 	
 	/* Avoid extra jump when nr of series is an exact multiple of 50 */

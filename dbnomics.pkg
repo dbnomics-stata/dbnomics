@@ -1,30 +1,24 @@
 d 'DBNOMICS': Stata client for DB.nomics, the world's economic database
 d
-d  dbnomics provides a suite of tools to search, browse and import time series 
-d data from DB.nomics, the world's economic database (https://db.nomics.world).  
-d DB.nomics is a web-based platform that aggregates and maintains time series 
-d data from various statistical agencies across the world.  dbnomics only works 
-d with Stata 14.0 or higher, since it relies on the secure HTTP protocol (https).
-d dbnomics provides an interface to DB.nomics' RESTful API 
-d (https://api.db.nomics.world/apidocs), allowing for flexible filtering 
-d of data using Stata's native options syntax (see Examples). To achieve this, 
-d the command relies on Erik Lindsley's libjson backend (ssc install libjson).
+d  dbnomics provides a suite of tools to search, browse and import 
+d time series data from DB.nomics, the world's economic database 
+d (https://db.nomics.world). DB.nomics is a web-based platform 
+d that aggregates and maintains time series data from various 
+d statistical agencies across the world.  dbnomics only works 
+d with Stata 14.0 or higher. 
+d dbnomics provides an interface between Stata and DB.nomics' API 
+d (https://api.db.nomics.world/apidocs). It enables creating 
+d custom queries through Stata's options syntax (see Examples). 
 d
+d KW: dbnomics
 d KW: data management
-d KW: API
-d KW: JSON
-d KW: ECB
-d KW: Eurostat
-d KW: IMF
-d KW: OECD
-d KW: World Bank
-d KW: ILO
+d KW: economic data
 d
-d Requires: Stata version 14.0 or higher 
+d Requires: Stata version 14.0, libjson and moss from SSC (q.v.)
 d
-d Distribution-Date: 20181030
+d Distribution-Date: 20200617
 d
-d Author: Simone Signore
+d Author: Simone Signore, European Investment Bank Group
 d Support: email signoresimone at yahoo [dot] it
 d
 f dbnomics.ado
